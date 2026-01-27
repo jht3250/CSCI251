@@ -4,6 +4,11 @@
 // SPRINT 1: Threading & Basic Networking
 // Due: Week 5 | Work on: Weeks 3-4
 //
+// KEY CONCEPTS USED IN THIS FILE:
+//   - BlockingCollection<T>: thread-safe queue that blocks on Take() (see HINTS.md)
+//   - Producer/Consumer pattern: network threads add, processing threads take
+//   - CancellationToken: allows Take() to be interrupted during shutdown
+//
 
 using System.Collections.Concurrent;
 

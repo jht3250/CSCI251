@@ -4,6 +4,17 @@
 // SPRINT 1: Threading & Basic Networking
 // Due: Week 5 | Work on: Weeks 3-4
 //
+// KEY CONCEPTS USED IN THIS FILE:
+//   - TcpClient: initiates outgoing connections (see HINTS.md)
+//   - async/await: ConnectAsync, ReadLineAsync, WriteLineAsync
+//   - StreamReader/StreamWriter: read/write text over network
+//   - Locking: protect _connections dictionary
+//
+// CLIENT vs SERVER:
+//   - TcpServer waits for others to connect TO it
+//   - TcpClientHandler connects TO other servers
+//   - Test: Terminal 1 runs /listen, Terminal 2 runs /connect
+//
 
 using System.Net;
 using System.Net.Sockets;

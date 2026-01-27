@@ -4,6 +4,12 @@
 // SPRINT 1: Threading & Basic Networking
 // Due: Week 5 | Work on: Weeks 3-4
 //
+// KEY CONCEPTS USED IN THIS FILE:
+//   - TcpListener: accepts incoming connections (see HINTS.md)
+//   - Threads: listen loop runs on background thread
+//   - Events (Action<T>): notify Program.cs when things happen
+//   - Locking: protect _connectedPeers from concurrent access
+//
 
 using System.Net;
 using System.Net.Sockets;
@@ -22,6 +28,8 @@ public class TcpServer
     private CancellationTokenSource? _cancellationTokenSource;
     private Thread? _listenThread;
 
+    // Events: invoke these with OnXxx?.Invoke(...) when something happens
+    // Program.cs subscribes with: server.OnXxx += (args) => { ... };
     public event Action<Peer>? OnPeerConnected;
     public event Action<Peer>? OnPeerDisconnected;
     public event Action<Peer, Message>? OnMessageReceived;
