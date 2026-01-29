@@ -1,0 +1,13 @@
+{
+  "version": 2,
+  "dgSpecHash": "fypSBLBnNJ0=",
+  "success": true,
+  "projectFilePath": "C:\\Users\\4ujtr\\OneDrive\\RIT\\CSCI251\\CSCI251\\SecureMessenger.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\4ujtr\\.nuget\\packages\\microsoft.netcore.app.ref\\9.0.12\\microsoft.netcore.app.ref.9.0.12.nupkg.sha512",
+    "C:\\Users\\4ujtr\\.nuget\\packages\\microsoft.windowsdesktop.app.ref\\9.0.12\\microsoft.windowsdesktop.app.ref.9.0.12.nupkg.sha512",
+    "C:\\Users\\4ujtr\\.nuget\\packages\\microsoft.aspnetcore.app.ref\\9.0.12\\microsoft.aspnetcore.app.ref.9.0.12.nupkg.sha512",
+    "C:\\Users\\4ujtr\\.nuget\\packages\\microsoft.netcore.app.host.win-x64\\9.0.12\\microsoft.netcore.app.host.win-x64.9.0.12.nupkg.sha512"
+  ],
+  "logs": []
+}
