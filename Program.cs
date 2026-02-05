@@ -52,9 +52,9 @@ namespace SecureMessenger;
 /// </summary>
 class Program
 {
-    private static Server _server;
-    private static Client _client;
-    private static ConsoleUI _ui;
+    private static Server? _server;
+    private static Client? _client;
+    private static ConsoleUI? _ui;
     private static string _username = "User";
     // TODO: Declare your components as fields for access across methods
     // Sprint 1-2 components:
@@ -71,7 +71,9 @@ class Program
     {
         Console.WriteLine("Secure Distributed Messenger");
         Console.WriteLine("============================");
-
+	    _server = new Server();
+	    _client = new Client();
+	    _ui = new ConsoleUI();
         // TODO: Initialize components
         // 1. Create Server for incoming connections
         // 2. Create Client for outgoing connection
