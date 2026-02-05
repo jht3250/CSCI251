@@ -52,6 +52,10 @@ namespace SecureMessenger;
 /// </summary>
 class Program
 {
+    private static Server _server;
+    private static Client _client;
+    private static ConsoleUI _ui;
+    private static string _username = "User";
     // TODO: Declare your components as fields for access across methods
     // Sprint 1-2 components:
     // private static Server? _server;
