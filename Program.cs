@@ -7,6 +7,7 @@
 // (Continue enhancing in Sprints 2 & 3)
 //
 
+using System.Net;
 using SecureMessenger.Core;
 using SecureMessenger.Network;
 using SecureMessenger.Security;
@@ -80,6 +81,12 @@ class Program
         // 3. Create ConsoleUI for user interface
         // 4. (Optional) Create MessageQueue if using producer/consumer pattern
 
+        _server.OnClientConnected += endPoint => {};
+        _server.OnClientDisconnected += endPoint => {};
+        _server.OnMessageRecieved += message => {};
+        _client.OnConnected += endPoint => {};
+        _client.OnDisconnected += endPoint => {};
+        _client.OnMessageReceived += message => {};
         // TODO: Subscribe to events
         // Server events:
         // - _server.OnClientConnected += endpoint => { ... };
