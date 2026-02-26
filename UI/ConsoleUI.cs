@@ -33,7 +33,8 @@ public class ConsoleUI
     /// </summary>
     public void DisplayMessage(Message message)
     {
-        throw new NotImplementedException("Implement DisplayMessage() - see TODO in comments above");
+        string output = $"[{message.Timestamp.ToString("HH:mm:ss")}] {message.Sender} {message.Content}";
+        Console.WriteLine($"{output}";
     }
 
     /// <summary>
@@ -44,7 +45,7 @@ public class ConsoleUI
     /// </summary>
     public void DisplaySystem(string message)
     {
-        throw new NotImplementedException("Implement DisplaySystem() - see TODO in comments above");
+        Console.WriteLine($"[System] {message}");
     }
 
     /// <summary>
@@ -56,7 +57,11 @@ public class ConsoleUI
     /// </summary>
     public void ShowHelp()
     {
-        throw new NotImplementedException("Implement ShowHelp() - see TODO in comments above");
+		Console.WriteLine("/connect <ip> <port> - Connect to a peer at the specified address");
+        Console.WriteLine("/listen <port> - Start listening for incoming connections");
+        Console.WriteLine("/peers - List all known peers");
+        Console.WriteLine("/history - View message history");
+        Console.WriteLine("/quit - Exit the application");
     }
 
     /// <summary>
@@ -84,7 +89,46 @@ public class ConsoleUI
     /// </summary>
     public CommandResult ParseCommand(string input)
     {
-        throw new NotImplementedException("Implement ParseCommand() - see TODO in comments above");
+        CommandResult cmdres = new();
+        if ( input.StartsWith("/") ){
+            switch(input){
+                case "/help":
+                cmdres.CommandType = CommandType.Help;
+                break;
+
+                case "/quit" || "/exit":
+                cmdres.CommandType = CommandType.Quit;
+                break;
+
+                case "/history":
+                cmdres.CommandType = CommandType.History;
+                break;
+
+                case "/peers":
+                cmdres.CommandType = CommandType.Peers;
+                break;
+
+                case string s when s.StartsWith("/listen"):
+                string[] command = input.Split(" ", 2, StringSplitOptions.RemoveEmptyEntries);
+                string[] port = {command[1]};
+                cmdres.CommandType = CommandType.Listen;
+                cmdres.Args = port;
+                break;
+
+                case string s when s.StartsWith("/connect"):
+                string[] command = input.Split(" ", 3, StringSplitOptions.RemoveEmptyEntries);
+                string[] args = {command[1], command[2]};
+                cmdres.CommandType = CommandType.Connect;
+                cmdres.Args = args;
+                break;
+            }
+        }
+        else{
+            cmdres.IsCommand = false;
+            cmdres.Message = input;
+        }
+
+        return CommandResult;
     }
 }
 
