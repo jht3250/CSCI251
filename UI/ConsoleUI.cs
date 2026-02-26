@@ -110,6 +110,9 @@ public class ConsoleUI
 
                 case string s when s.StartsWith("/listen"):
                 string[] command = input.Split(" ", 2, StringSplitOptions.RemoveEmptyEntries);
+                if (command.Length() != 2){
+                    Console.WriteLine("uh oh");
+                    break;
                 string[] port = {command[1]};
                 cmdres.CommandType = CommandType.Listen;
                 cmdres.Args = port;
@@ -117,6 +120,10 @@ public class ConsoleUI
 
                 case string s when s.StartsWith("/connect"):
                 string[] connectcoms = input.Split(" ", 3, StringSplitOptions.RemoveEmptyEntries);
+                if (connectcoms.Length() != 3){
+                    Console.WriteLine("done goofed");
+                    break;
+                }
                 string[] args = {connectcoms[1], connectcoms[2]};
                 cmdres.CommandType = CommandType.Connect;
                 cmdres.Args = args;
