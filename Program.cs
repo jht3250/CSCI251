@@ -83,7 +83,8 @@ class Program
 
         _server.OnClientConnected += endPoint => {};
         _server.OnClientDisconnected += endPoint => {};
-        _server.OnMessageRecieved += message => {};
+        _server.OnMessageReceived += message => {};
+
         _client.OnConnected += endPoint => {};
         _client.OnDisconnected += endPoint => {};
         _client.OnMessageReceived += message => {};
