@@ -145,11 +145,11 @@ class Program
                 break;
 
                 case CommandType.Listen:
-                _server.Start(cmdres.Args[0]);
+                _server.Start(int.Parse(cmdres.Args[0]));
                 break;
 
                 case CommandType.Connect:
-                await _client.ConnectAsync(cmdres.Args[0], cmdres.Args[1]);
+                await _client.ConnectAsync(cmdres.Args[0], int.Parse(cmdres.Args[1]));
                 break;
 
                 case CommandType.Unknown:
