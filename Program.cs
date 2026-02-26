@@ -122,18 +122,39 @@ class Program
             if (string.IsNullOrEmpty(input)) continue;
 
             // Temporary basic command handling - replace with full implementation
-            switch (input.ToLower())
+            CommandResult cmdres = _ui.ParseCommand(input);
+            if (cmdres.IsCommand == false)
             {
-                case "/quit":
-                case "/exit":
-                    running = false;
-                    break;
-                case "/help":
-                    ShowHelp();
-                    break;
-                default:
-                    Console.WriteLine("Command not yet implemented. See TODO comments.");
-                    break;
+                SendMessage(cmdres.Message);
+            }
+            switch (cmdres.CommandType)
+            {
+                case CommandType.Help:
+                ShowHelp();
+                break;
+
+                case CommandType.Quit:
+                running = false;
+                break;
+            
+                case CommandType.History:
+                break;
+
+                case CommandType.Peers:
+                HandlePeers();
+                break;
+
+                case CommandType.Listen:
+                HandleListen(cmdres.Args);
+                break;
+
+                case CommandType.Connect:
+                HandleConnect(cmdres.Args);
+                break;
+
+                case CommandType.Unknown:
+                Console.WriteLine("unknown command");
+                break;
             }
         }
 
