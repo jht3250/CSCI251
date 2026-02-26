@@ -34,7 +34,7 @@ public class ConsoleUI
     public void DisplayMessage(Message message)
     {
         string output = $"[{message.Timestamp.ToString("HH:mm:ss")}] {message.Sender} {message.Content}";
-        Console.WriteLine($"{output}";
+        Console.WriteLine($"{output}");
     }
 
     /// <summary>
@@ -96,7 +96,7 @@ public class ConsoleUI
                 cmdres.CommandType = CommandType.Help;
                 break;
 
-                case "/quit" || "/exit":
+                case string s when (s == "/quit") || (s == "/exit"):
                 cmdres.CommandType = CommandType.Quit;
                 break;
 
@@ -116,8 +116,8 @@ public class ConsoleUI
                 break;
 
                 case string s when s.StartsWith("/connect"):
-                string[] command = input.Split(" ", 3, StringSplitOptions.RemoveEmptyEntries);
-                string[] args = {command[1], command[2]};
+                string[] connectcoms = input.Split(" ", 3, StringSplitOptions.RemoveEmptyEntries);
+                string[] args = {connectcoms[1], connectcoms[2]};
                 cmdres.CommandType = CommandType.Connect;
                 cmdres.Args = args;
                 break;
@@ -128,7 +128,7 @@ public class ConsoleUI
             cmdres.Message = input;
         }
 
-        return CommandResult;
+        return cmdres;
     }
 }
 
