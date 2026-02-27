@@ -1,4 +1,4 @@
-// [Your Name Here]
+// Alex Vasilcoiu (aav9060@rit.edu)
 // CSCI 251 - Secure Distributed Messenger
 //
 // SPRINT 1: Threading & Basic Networking
@@ -71,7 +71,20 @@ public class Client
     /// </summary>
     public async Task<bool> ConnectAsync(string host, int port)
     {
-        throw new NotImplementedException("Implement ConnectAsync() - see TODO in comments above");
+        try{
+            _cancellationTokenSource = new CancellationTokenSource();
+            _client = new TcpClient();
+            await _client.ConnectAsync(host, port);
+            _stream = _client.GetStream();
+            _serverEndpoint = $"{host}:{port}";
+            OnConnected?.Invoke(_serverEndpoint);
+            _ = Task.Run(ReceiveAsync);
+            return true;
+        }
+        catch (Exception ex){
+            Console.Error.WriteLine($"[Client] ConnectAsync failed: {ex.Message}");
+            return false;
+        }
     }
 
     /// <summary>
@@ -97,9 +110,53 @@ public class Client
     /// Sprint 3: Will be enhanced to update Peer.LastSeen and
     /// trigger reconnection attempts on unexpected disconnect.
     /// </summary>
-    private async Task ReceiveAsync()
+        private async Task ReceiveAsync()
     {
-        throw new NotImplementedException("Implement ReceiveAsync() - see TODO in comments above");
+        var lengthBuffer = new byte[4];
+        try{
+            while (!_cancellationTokenSource!.Token.IsCancellationRequested && (_client?.Connected ?? false)){
+                int bytesRead = await _stream!.ReadAsync(lengthBuffer, 0, 4, _cancellationTokenSource.Token);
+
+                if (bytesRead == 0){
+                    break;
+                }
+
+                int messageLength = BitConverter.ToInt32(lengthBuffer, 0);
+
+                if (messageLength <= 0 || messageLength >= 1_000_000){
+                    Console.Error.WriteLine($"[Client] Invalid message length: {messageLength}");
+                    break;
+                }
+
+                var payloadBuffer = new byte[messageLength];
+                int totalRead = 0;
+
+                while (totalRead < messageLength){
+                    int read = await _stream.ReadAsync(
+                        payloadBuffer, totalRead, messageLength - totalRead,
+                        _cancellationTokenSource.Token);
+                    if (read == 0){
+                        break;
+                    }
+                    totalRead += read;
+                }
+
+                string json = Encoding.UTF8.GetString(payloadBuffer, 0, totalRead);
+                var message = JsonSerializer.Deserialize<Message>(json);
+                if (message != null){
+                    OnMessageReceived?.Invoke(message);
+                }
+            }
+        }
+        catch (OperationCanceledException){
+            break;
+        }
+        catch (Exception ex){
+            Console.Error.WriteLine($"[Client] ReceiveAsync error: {ex.Message}");
+        }
+        finally{
+            OnDisconnected?.Invoke(_serverEndpoint);
+        }
     }
 
     /// <summary>
@@ -117,9 +174,21 @@ public class Client
     /// Sprint 2: Add encryption before serialization
     /// Sprint 3: Will send to Peer instead of raw stream
     /// </summary>
-    public void Send(Message message)
-    {
-        throw new NotImplementedException("Implement Send() - see TODO in comments above");
+    public void Send(Message message){
+        if (!IsConnected || _stream == null){
+            Console.Error.WriteLine("[Client] Send failed: not connected.");
+            return;
+        }
+        try{
+            string json = JsonSerializer.Serialize(message);
+            byte[] payload = Encoding.UTF8.GetBytes(json);
+            byte[] lengthPrefix = BitConverter.GetBytes(payload.Length);
+            _stream.Write(lengthPrefix, 0, lengthPrefix.Length);
+            _stream.Write(payload, 0, payload.Length);
+        }
+        catch (Exception ex){
+            Console.Error.WriteLine($"[Client] Send error: {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -130,8 +199,9 @@ public class Client
     /// 2. Close the stream
     /// 3. Close the client
     /// </summary>
-    public void Disconnect()
-    {
-        throw new NotImplementedException("Implement Disconnect() - see TODO in comments above");
+    public void Disconnect(){
+        _cancellationTokenSource?.Cancel();
+        _stream?.Close();
+        _client?.Close();
     }
 }
