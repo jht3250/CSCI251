@@ -57,6 +57,7 @@ class Program
     private static Client? _client;
     private static ConsoleUI? _ui;
     private static string _username = "User";
+    private static string _clientEndpoint = "";
     // TODO: Declare your components as fields for access across methods
     // Sprint 1-2 components:
     // private static Server? _server;
@@ -72,22 +73,22 @@ class Program
     {
         Console.WriteLine("Secure Distributed Messenger");
         Console.WriteLine("============================");
-	    _server = new Server();
-	    _client = new Client();
-	    _ui = new ConsoleUI();
+        _server = new Server();
+        _client = new Client();
+        _ui = new ConsoleUI();
         // TODO: Initialize components
         // 1. Create Server for incoming connections
         // 2. Create Client for outgoing connection
         // 3. Create ConsoleUI for user interface
         // 4. (Optional) Create MessageQueue if using producer/consumer pattern
 
-        _server.OnClientConnected += endPoint => {};
-        _server.OnClientDisconnected += endPoint => {};
-        _server.OnMessageReceived += message => {};
+        _server.OnClientConnected += endPoint => { };
+        _server.OnClientDisconnected += endPoint => { };
+        _server.OnMessageReceived += message => { };
 
-        _client.OnConnected += endPoint => {};
-        _client.OnDisconnected += endPoint => {};
-        _client.OnMessageReceived += message => {};
+        _client.OnConnected += endPoint => { _clientEndpoint = endPoint; };
+        _client.OnDisconnected += endPoint => { };
+        _client.OnMessageReceived += message => { };
         // TODO: Subscribe to events
         // Server events:
         // - _server.OnClientConnected += endpoint => { ... };
@@ -125,43 +126,46 @@ class Program
             CommandResult cmdres = _ui.ParseCommand(input);
             if (cmdres.IsCommand == false)
             {
-                SendMessage(cmdres.Message);
+                SendMessage(cmdres.Message ?? input);
+                continue;
             }
             switch (cmdres.CommandType)
             {
                 case CommandType.Help:
-                ShowHelp();
-                break;
+                    ShowHelp();
+                    break;
 
                 case CommandType.Quit:
-                running = false;
-                break;
-            
+                    running = false;
+                    break;
+
                 case CommandType.History:
-                break;
+                    break;
 
                 case CommandType.Peers:
-                HandlePeers();
-                break;
+                    HandlePeers();
+                    break;
 
                 case CommandType.Listen:
-                _server.Start(int.Parse(cmdres.Args[0]));
-                break;
+                    if (cmdres.Args != null && cmdres.Args.Length > 0)
+                        _server?.Start(int.Parse(cmdres.Args[0]));
+                    break;
 
                 case CommandType.Connect:
-                await _client.ConnectAsync(cmdres.Args[0], int.Parse(cmdres.Args[1]));
-                break;
+                    if (cmdres.Args != null && cmdres.Args.Length > 1)
+                        await _client!.ConnectAsync(cmdres.Args[0], int.Parse(cmdres.Args[1]));
+                    break;
 
                 case CommandType.Unknown:
-                Console.WriteLine("unknown command");
-                break;
+                    Console.WriteLine("unknown command");
+                    break;
             }
         }
 
         // TODO: Implement graceful shutdown
         // 3. (Sprint 3) Stop peer discovery and heartbeat monitor
-        _server.Stop();
-        _client.Disconnect();
+        _server?.Stop();
+        _client?.Disconnect();
 
         Console.WriteLine("Goodbye!");
     }
@@ -188,31 +192,36 @@ class Program
 
     // Helper methods HandlePeers() and SendMessage() wrriten by Alex Vasilcoiu
 
-    private static void HandlePeers(){
+    private static void HandlePeers()
+    {
         bool hasServer = _server != null;
         bool hasClient = _client != null && _client.IsConnected;
 
-        if (!hasServer && !hasClient){
+        if (!hasServer && !hasClient)
+        {
             Console.WriteLine("No active connections.");
             return;
         }
 
-        if (hasServer){
+        if (hasServer && _server != null)
+        {
             Console.WriteLine($"  [server] Listening on port {_server.Port}");
         }
 
-        if (hasClient){
-            Console.WriteLine($"  [client] Connected to {_client.RemoteEndPoint}");
+        if (hasClient && _client != null)
+        {
+            Console.WriteLine($"  [client] Connected to {_clientEndpoint}");
         }
     }
 
-    private static void SendMessage(string content){
+    private static void SendMessage(string content)
+    {
         if (string.IsNullOrWhiteSpace(content)) return;
 
-        string formatted = $"{_username}: {content}";
+        var msg = new Message { Sender = _username, Content = content };
 
-        _server.Broadcast(formatted);
-        _client.Send(formatted);
+        _server?.Broadcast(msg);
+        _client?.Send(msg);
 
         Console.WriteLine($"[you]: {content}");
     }
