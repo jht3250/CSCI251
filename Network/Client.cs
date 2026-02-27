@@ -149,7 +149,7 @@ public class Client
             }
         }
         catch (OperationCanceledException){
-            break;
+            // Normal shutdown
         }
         catch (Exception ex){
             Console.Error.WriteLine($"[Client] ReceiveAsync error: {ex.Message}");
