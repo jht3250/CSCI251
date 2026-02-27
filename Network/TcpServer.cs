@@ -11,6 +11,7 @@
 //   - Locking: protect _connectedPeers from concurrent access
 //
 
+using System.Linq.Expressions;
 using System.Net;
 using System.Net.Sockets;
 using SecureMessenger.Core;
@@ -50,7 +51,18 @@ public class TcpServer
     /// </summary>
     public void Start(int port)
     {
-        throw new NotImplementedException("Implement Start() - see TODO in comments above");
+        Port = port;
+        _cancellationTokenSource = new CancellationTokenSource();
+        _listener = new TcpListener(IPAddress.Any, port);
+        _listener.Start();
+        IsListening = true;
+
+        _listenThread = new Thread(ListenLoop)
+        {
+            IsBackground = true
+        };
+        _listenThread.Start();
+        Console.WriteLine($"Listening for incoming connections on port {port}...");
     }
 
     /// <summary>
@@ -66,7 +78,29 @@ public class TcpServer
     /// </summary>
     private void ListenLoop()
     {
-        throw new NotImplementedException("Implement ListenLoop() - see TODO in comments above");
+        try
+        {
+            while (!_cancellationTokenSource!.Token.IsCancellationRequested)
+            {
+                if (_listener!.Pending())
+                {
+                    TcpClient client = _listener.AcceptTcpClient();
+                    HandleNewConnection(client);
+                }
+                else
+                {
+                    Thread.Sleep(100); // Sleep briefly to avoid busy-waiting
+                }
+            }
+        }
+        catch (SocketException ex)
+        {
+            Console.WriteLine($"SocketException in ListenLoop: {ex.Message}");
+        }
+        catch (IOException ex)
+        {
+            Console.WriteLine($"IOException in ListenLoop: {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -85,7 +119,26 @@ public class TcpServer
     /// </summary>
     private void HandleNewConnection(TcpClient client)
     {
-        throw new NotImplementedException("Implement HandleNewConnection() - see TODO in comments above");
+        IPEndPoint? endPoint = client.Client.RemoteEndPoint as IPEndPoint;
+
+        Peer peer = new Peer
+        {
+            Client = client,
+            Stream = client.GetStream(),
+            Address = endPoint?.Address ?? IPAddress.None,
+            Port = endPoint?.Port ?? 0,
+            IsConnected = true
+        };
+        lock (_connectedPeers)
+        {
+            _connectedPeers.Add(peer);
+        }
+        OnPeerConnected?.Invoke(peer);
+        Thread receiveThread = new Thread(() => ReceiveLoop(peer))
+        {
+            IsBackground = true
+        };
+        receiveThread.Start();
     }
 
     /// <summary>
@@ -103,7 +156,38 @@ public class TcpServer
     /// </summary>
     private void ReceiveLoop(Peer peer)
     {
-        throw new NotImplementedException("Implement ReceiveLoop() - see TODO in comments above");
+        try
+        {
+            using StreamReader reader = new StreamReader(peer.Stream!);
+            while (peer.IsConnected && !_cancellationTokenSource!.Token.IsCancellationRequested)
+            {
+                string? line = reader.ReadLine();
+                if (line == null)
+                {
+                    // Connection was closed
+                    break;
+                }
+                Message message = new Message
+                {
+                    Content = line,
+                    Timestamp = DateTime.Now,
+                    Sender = peer.Address?.ToString() ?? "Unknown"
+                };
+                OnMessageReceived?.Invoke(peer, message);
+            }
+        }
+        catch (IOException ex)
+        {
+            Console.WriteLine($"IOException in ReceiveLoop for peer {peer.Address}: {ex.Message}");
+        }
+        catch (ObjectDisposedException)
+        {
+            // do nothing
+        }
+        finally
+        {
+            DisconnectPeer(peer);
+        }
     }
 
     /// <summary>
@@ -117,8 +201,22 @@ public class TcpServer
     /// </summary>
     private void DisconnectPeer(Peer peer)
     {
-        throw new NotImplementedException("Implement DisconnectPeer() - see TODO in comments above");
+        peer.IsConnected = false;
+        try
+        {
+            peer.Stream?.Dispose();
+        }
+        catch (Exception ex)
+        {
+            // do nothing
+        }
+        lock (_connectedPeers)
+        {
+            _connectedPeers.Remove(peer);
+        }
+        OnPeerDisconnected?.Invoke(peer);
     }
+
 
     /// <summary>
     /// Stop the server and close all connections.
@@ -132,7 +230,27 @@ public class TcpServer
     /// </summary>
     public void Stop()
     {
-        throw new NotImplementedException("Implement Stop() - see TODO in comments above");
+        try
+        {
+            _listener?.Stop();
+        }
+        catch (Exception ex)
+        {
+            // do nothing
+        }
+        IsListening = false;
+
+        List<Peer> peersToDisconnect;
+        lock (_connectedPeers)
+        {
+            peersToDisconnect = _connectedPeers.ToList();
+        }
+        foreach (var peer in peersToDisconnect)
+        {
+            DisconnectPeer(peer);
+        }
+
+        _listenThread?.Join(TimeSpan.FromSeconds(2));
     }
 
     /// <summary>
