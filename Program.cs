@@ -159,9 +159,9 @@ class Program
         }
 
         // TODO: Implement graceful shutdown
-        // 1. Stop the server
-        // 2. Disconnect the client
         // 3. (Sprint 3) Stop peer discovery and heartbeat monitor
+        _server.Stop();
+        _client.Disconnect();
 
         Console.WriteLine("Goodbye!");
     }
@@ -186,10 +186,34 @@ class Program
         Console.WriteLine();
     }
 
-    // TODO: Add helper methods as needed
-    // Examples:
-    // - HandleListen(string[] args) - start the server
-    // - HandleConnect(string[] args) - connect to a server
-    // - HandlePeers() - show connection status
-    // - SendMessage(string content) - send to all connections
+    // Helper methods HandlePeers() and SendMessage() wrriten by Alex Vasilcoiu
+
+    private static void HandlePeers(){
+        bool hasServer = _server != null;
+        bool hasClient = _client != null && _client.IsConnected;
+
+        if (!hasServer && !hasClient){
+            Console.WriteLine("No active connections.");
+            return;
+        }
+
+        if (hasServer){
+            Console.WriteLine($"  [server] Listening on port {_server.Port}");
+        }
+
+        if (hasClient){
+            Console.WriteLine($"  [client] Connected to {_client.RemoteEndPoint}");
+        }
+    }
+
+    private static void SendMessage(string content){
+        if (string.IsNullOrWhiteSpace(content)) return;
+
+        string formatted = $"{_username}: {content}";
+
+        _server.Broadcast(formatted);
+        _client.Send(formatted);
+
+        Console.WriteLine($"[you]: {content}");
+    }
 }
