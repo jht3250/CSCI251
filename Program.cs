@@ -226,8 +226,11 @@ class Program
 
         var msg = new Message { Sender = _username, Content = content };
 
-        _server?.Broadcast(msg);
-        _client?.Send(msg);
+        if (_server != null && _server.IsListening)
+            _server.Broadcast(msg);
+
+        if (_client != null && _client.IsConnected)
+            _client.Send(msg);
 
         Console.WriteLine($"[you]: {content}");
     }
