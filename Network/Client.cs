@@ -71,7 +71,8 @@ public class Client
     /// </summary>
     public async Task<bool> ConnectAsync(string host, int port)
     {
-        try{
+        try
+        {
             _cancellationTokenSource = new CancellationTokenSource();
             _client = new TcpClient();
             await _client.ConnectAsync(host, port);
@@ -81,7 +82,8 @@ public class Client
             _ = Task.Run(ReceiveAsync);
             return true;
         }
-        catch (Exception ex){
+        catch (Exception ex)
+        {
             Console.Error.WriteLine($"[Client] ConnectAsync failed: {ex.Message}");
             return false;
         }
@@ -110,20 +112,24 @@ public class Client
     /// Sprint 3: Will be enhanced to update Peer.LastSeen and
     /// trigger reconnection attempts on unexpected disconnect.
     /// </summary>
-        private async Task ReceiveAsync()
+    private async Task ReceiveAsync()
     {
         var lengthBuffer = new byte[4];
-        try{
-            while (!_cancellationTokenSource!.Token.IsCancellationRequested && (_client?.Connected ?? false)){
+        try
+        {
+            while (!_cancellationTokenSource!.Token.IsCancellationRequested && (_client?.Connected ?? false))
+            {
                 int bytesRead = await _stream!.ReadAsync(lengthBuffer, 0, 4, _cancellationTokenSource.Token);
 
-                if (bytesRead == 0){
+                if (bytesRead == 0)
+                {
                     break;
                 }
 
                 int messageLength = BitConverter.ToInt32(lengthBuffer, 0);
 
-                if (messageLength <= 0 || messageLength >= 1_000_000){
+                if (messageLength <= 0 || messageLength >= 1_000_000)
+                {
                     Console.Error.WriteLine($"[Client] Invalid message length: {messageLength}");
                     break;
                 }
@@ -131,11 +137,13 @@ public class Client
                 var payloadBuffer = new byte[messageLength];
                 int totalRead = 0;
 
-                while (totalRead < messageLength){
+                while (totalRead < messageLength)
+                {
                     int read = await _stream.ReadAsync(
                         payloadBuffer, totalRead, messageLength - totalRead,
                         _cancellationTokenSource.Token);
-                    if (read == 0){
+                    if (read == 0)
+                    {
                         break;
                     }
                     totalRead += read;
@@ -143,18 +151,22 @@ public class Client
 
                 string json = Encoding.UTF8.GetString(payloadBuffer, 0, totalRead);
                 var message = JsonSerializer.Deserialize<Message>(json);
-                if (message != null){
+                if (message != null)
+                {
                     OnMessageReceived?.Invoke(message);
                 }
             }
         }
-        catch (OperationCanceledException){
+        catch (OperationCanceledException)
+        {
             // Normal shutdown
         }
-        catch (Exception ex){
+        catch (Exception ex)
+        {
             Console.Error.WriteLine($"[Client] ReceiveAsync error: {ex.Message}");
         }
-        finally{
+        finally
+        {
             OnDisconnected?.Invoke(_serverEndpoint);
         }
     }
@@ -174,19 +186,23 @@ public class Client
     /// Sprint 2: Add encryption before serialization
     /// Sprint 3: Will send to Peer instead of raw stream
     /// </summary>
-    public void Send(Message message){
-        if (!IsConnected || _stream == null){
+    public void Send(Message message)
+    {
+        if (!IsConnected || _stream == null)
+        {
             Console.Error.WriteLine("[Client] Send failed: not connected.");
             return;
         }
-        try{
+        try
+        {
             string json = JsonSerializer.Serialize(message);
             byte[] payload = Encoding.UTF8.GetBytes(json);
             byte[] lengthPrefix = BitConverter.GetBytes(payload.Length);
             _stream.Write(lengthPrefix, 0, lengthPrefix.Length);
             _stream.Write(payload, 0, payload.Length);
         }
-        catch (Exception ex){
+        catch (Exception ex)
+        {
             Console.Error.WriteLine($"[Client] Send error: {ex.Message}");
         }
     }
@@ -199,7 +215,8 @@ public class Client
     /// 2. Close the stream
     /// 3. Close the client
     /// </summary>
-    public void Disconnect(){
+    public void Disconnect()
+    {
         _cancellationTokenSource?.Cancel();
         _stream?.Close();
         _client?.Close();

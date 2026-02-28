@@ -82,13 +82,13 @@ class Program
         // 3. Create ConsoleUI for user interface
         // 4. (Optional) Create MessageQueue if using producer/consumer pattern
 
-        _server.OnClientConnected += endPoint => { };
-        _server.OnClientDisconnected += endPoint => { };
-        _server.OnMessageReceived += message => { };
+        _server.OnClientConnected += endPoint => { Console.WriteLine($"[server] Client connected: {endPoint}"); };
+        _server.OnClientDisconnected += endPoint => { Console.WriteLine($"[server] Client disconnected: {endPoint}"); };
+        _server.OnMessageReceived += message => { Console.WriteLine($"[{message.Timestamp:HH:mm:ss}] {message.Sender}: {message.Content}"); };
 
-        _client.OnConnected += endPoint => { _clientEndpoint = endPoint; };
-        _client.OnDisconnected += endPoint => { };
-        _client.OnMessageReceived += message => { };
+        _client.OnConnected += endPoint => { _clientEndpoint = endPoint; Console.WriteLine($"[client] Connected to {endPoint}"); };
+        _client.OnDisconnected += endPoint => { Console.WriteLine($"[client] Disconnected from {endPoint}"); };
+        _client.OnMessageReceived += message => { Console.WriteLine($"[{message.Timestamp:HH:mm:ss}] {message.Sender}: {message.Content}"); };
         // TODO: Subscribe to events
         // Server events:
         // - _server.OnClientConnected += endpoint => { ... };
@@ -153,7 +153,13 @@ class Program
 
                 case CommandType.Connect:
                     if (cmdres.Args != null && cmdres.Args.Length > 1)
-                        await _client!.ConnectAsync(cmdres.Args[0], int.Parse(cmdres.Args[1]));
+                    {
+                        Console.WriteLine($"Connecting to {cmdres.Args[0]}:{cmdres.Args[1]}...");
+                        bool connected = await _client!.ConnectAsync(cmdres.Args[0], int.Parse(cmdres.Args[1]));
+                        Console.WriteLine(connected
+                            ? $"Connected to {cmdres.Args[0]}:{cmdres.Args[1]}"
+                            : $"Failed to connect to {cmdres.Args[0]}:{cmdres.Args[1]}");
+                    }
                     break;
 
                 case CommandType.Unknown:

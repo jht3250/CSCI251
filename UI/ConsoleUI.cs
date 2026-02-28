@@ -57,7 +57,7 @@ public class ConsoleUI
     /// </summary>
     public void ShowHelp()
     {
-		Console.WriteLine("/connect <ip> <port> - Connect to a peer at the specified address");
+        Console.WriteLine("/connect <ip> <port> - Connect to a peer at the specified address");
         Console.WriteLine("/listen <port> - Start listening for incoming connections");
         Console.WriteLine("/peers - List all known peers");
         Console.WriteLine("/history - View message history");
@@ -90,56 +90,58 @@ public class ConsoleUI
     public CommandResult ParseCommand(string input)
     {
         CommandResult cmdres = new();
-        if ( input.StartsWith("/") )
+        if (input.StartsWith("/"))
         {
-            switch(input)
+            cmdres.IsCommand = true;
+            switch (input)
             {
                 case "/help":
-                cmdres.CommandType = CommandType.Help;
-                break;
+                    cmdres.CommandType = CommandType.Help;
+                    break;
 
                 case string s when (s == "/quit") || (s == "/exit"):
-                cmdres.CommandType = CommandType.Quit;
-                break;
+                    cmdres.CommandType = CommandType.Quit;
+                    break;
 
                 case "/history":
-                cmdres.CommandType = CommandType.History;
-                break;
+                    cmdres.CommandType = CommandType.History;
+                    break;
 
                 case "/peers":
-                cmdres.CommandType = CommandType.Peers;
-                break;
+                    cmdres.CommandType = CommandType.Peers;
+                    break;
 
                 case string s when s.StartsWith("/listen"):
-                string[] command = input.Split(" ", 2, StringSplitOptions.RemoveEmptyEntries);
-                if (command.Length != 2)
-                {
-                    Console.WriteLine("uh oh");
+                    string[] command = input.Split(" ", 2, StringSplitOptions.RemoveEmptyEntries);
+                    if (command.Length != 2)
+                    {
+                        Console.WriteLine("uh oh");
+                        break;
+                    }
+                    string[] port = { command[1] };
+                    cmdres.CommandType = CommandType.Listen;
+                    cmdres.Args = port;
                     break;
-                }
-                string[] port = {command[1]};
-                cmdres.CommandType = CommandType.Listen;
-                cmdres.Args = port;
-                break;
 
                 case string s when s.StartsWith("/connect"):
-                string[] connectcoms = input.Split(" ", 3, StringSplitOptions.RemoveEmptyEntries);
-                if (connectcoms.Length != 3)
-                {
-                    Console.WriteLine("done goofed");
+                    string[] connectcoms = input.Split(" ", 3, StringSplitOptions.RemoveEmptyEntries);
+                    if (connectcoms.Length != 3)
+                    {
+                        Console.WriteLine("done goofed");
+                        break;
+                    }
+                    string[] args = { connectcoms[1], connectcoms[2] };
+                    cmdres.CommandType = CommandType.Connect;
+                    cmdres.Args = args;
                     break;
-                }
-                string[] args = {connectcoms[1], connectcoms[2]};
-                cmdres.CommandType = CommandType.Connect;
-                cmdres.Args = args;
-                break;
 
                 default:
-                cmdres.CommandType = CommandType.Unknown;
-                break;
+                    cmdres.CommandType = CommandType.Unknown;
+                    break;
             }
         }
-        else{
+        else
+        {
             cmdres.IsCommand = false;
             cmdres.Message = input;
         }
