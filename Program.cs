@@ -232,6 +232,6 @@ class Program
         _server?.Broadcast(msg);
         _client?.Send(msg);
 
-        Console.WriteLine($"[you]: {content}");
+        //Console.WriteLine($"[you]: {content}");
     }
 }
