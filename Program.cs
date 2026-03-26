@@ -84,7 +84,10 @@ class Program
 
         _server.OnClientConnected += endPoint => { Console.WriteLine($"[server] Client connected: {endPoint}"); };
         _server.OnClientDisconnected += endPoint => { Console.WriteLine($"[server] Client disconnected: {endPoint}"); };
-        _server.OnMessageReceived += message => { Console.WriteLine($"[{message.Timestamp:HH:mm:ss}] {message.Sender}: {message.Content}"); };
+        _server.OnMessageReceived += message => { 
+            Console.WriteLine($"[{message.Timestamp:HH:mm:ss}] {message.Sender}: {message.Content}"); 
+            _server.Broadcast(message);
+        };
 
         _client.OnConnected += endPoint => { _clientEndpoint = endPoint; Console.WriteLine($"[client] Connected to {endPoint}"); };
         _client.OnDisconnected += endPoint => { Console.WriteLine($"[client] Disconnected from {endPoint}"); };
@@ -226,11 +229,8 @@ class Program
 
         var msg = new Message { Sender = _username, Content = content };
 
-        if (_server != null && _server.IsListening)
-            _server.Broadcast(msg);
-
-        if (_client != null && _client.IsConnected)
-            _client.Send(msg);
+        _server?.Broadcast(msg);
+        _client?.Send(msg);
 
         Console.WriteLine($"[you]: {content}");
     }
