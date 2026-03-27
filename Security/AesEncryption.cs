@@ -48,7 +48,11 @@ public class AesEncryption
     /// </summary>
     public static byte[] GenerateKey()
     {
-        throw new NotImplementedException("Implement GenerateKey() - see TODO in comments above");
+        using Aes aes = Aes.Create();
+        aes.KeySize = 256;
+        aes.GenerateKey();
+        byte[] key = aes.Key;
+        return key;
     }
 
     /// <summary>
