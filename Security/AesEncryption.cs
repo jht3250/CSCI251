@@ -5,7 +5,9 @@
 // Due: Week 10 | Work on: Weeks 6-9
 //
 
+using System.ComponentModel.DataAnnotations;
 using System.Security.Cryptography;
+using System.Text;
 
 namespace SecureMessenger.Security;
 
@@ -48,7 +50,11 @@ public class AesEncryption
     /// </summary>
     public static byte[] GenerateKey()
     {
-        throw new NotImplementedException("Implement GenerateKey() - see TODO in comments above");
+        using Aes aes = Aes.Create();
+        aes.KeySize = 256;
+        aes.GenerateKey();
+        byte[] key = aes.Key;
+        return key;
     }
 
     /// <summary>
@@ -71,7 +77,17 @@ public class AesEncryption
     /// </summary>
     public byte[] Encrypt(string plaintext)
     {
-        throw new NotImplementedException("Implement Encrypt() - see TODO in comments above");
+        using Aes aes = Aes.Create();
+        aes.Key = _key;
+        aes.Mode = CipherMode.CBC;
+        aes.GenerateIV();
+        using ICryptoTransform encrypter = aes.CreateEncryptor();
+        byte[] plainBytes = Encoding.UTF8.GetBytes(plaintext);
+        byte[] cipherText = encrypter.TransformFinalBlock(plainBytes, 0, plainBytes.Length);
+        byte[] result = new byte[aes.IV.Length + cipherText.Length];
+        Buffer.BlockCopy(aes.IV, 0, result, 0, aes.IV.Length);
+        Buffer.BlockCopy(cipherText, 0, result, 0, cipherText.Length);
+        return result;
     }
 
     /// <summary>
@@ -95,6 +111,18 @@ public class AesEncryption
     /// </summary>
     public string Decrypt(byte[] ciphertext)
     {
+        using Aes aes = Aes.Create();
+        aes.Key = _key;
+        aes.Mode = CipherMode.CBC;
+        byte[] iv = new byte[16];
+        Buffer.BlockCopy(aes.IV, 0, iv, 0, 16);
+        aes.IV = iv;
+        byte[] cipherExtract = new byte[ciphertext.Length - 16];
+        Buffer.BlockCopy(ciphertext, 16, cipherExtract, 0, ciphertext.Length - 16);
+        using ICryptoTransform decryptor = aes.CreateDecryptor();
+        byte[] decryption = decryptor.TransformFinalBlock(cipherExtract, 0, cipherExtract.Length);
+        string plainText = Encoding.UTF8.GetString(decryption);
+        return plainText;
         throw new NotImplementedException("Implement Decrypt() - see TODO in comments above");
     }
 }

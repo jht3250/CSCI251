@@ -1,4 +1,4 @@
-// [Your Name Here]
+// Author: Alex Vasilcoiu (aav9060@rit.edu)
 // CSCI 251 - Secure Distributed Messenger
 //
 // SPRINT 2: Security & Encryption

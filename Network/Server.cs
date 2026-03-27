@@ -110,7 +110,58 @@ public class Server
     /// </summary>
     private async Task ReceiveFromClientAsync(TcpClient client, string endpoint)
     {
-        throw new NotImplementedException("Implement ReceiveFromClientAsync() - see TODO in comments above");
+        try
+        {
+            NetworkStream stream = client.GetStream();
+            byte[] lengthBuffer = new byte[4];
+
+            while (!_cancellationTokenSource?.Token.IsCancellationRequested ?? false)
+            {
+                // Read 4 bytes for message length
+                int bytesRead = await stream.ReadAsync(lengthBuffer, 0, 4, _cancellationTokenSource?.Token ?? CancellationToken.None);
+                if (bytesRead == 0) break; // Client disconnected
+
+                int messageLength = BitConverter.ToInt32(lengthBuffer, 0);
+                if (messageLength <= 0 || messageLength > 1_000_000)
+                {
+                    Console.WriteLine($"Invalid message length: {messageLength} from {endpoint}");
+                    break;
+                }
+
+                byte[] payloadBuffer = new byte[messageLength];
+                int totalBytesRead = 0;
+                while (totalBytesRead < messageLength)
+                {
+                    int read = await stream.ReadAsync(payloadBuffer, totalBytesRead, messageLength - totalBytesRead, _cancellationTokenSource?.Token ?? CancellationToken.None);
+                    if (read == 0) break; // Client disconnected
+                    totalBytesRead += read;
+                }
+
+                string jsonString = System.Text.Encoding.UTF8.GetString(payloadBuffer);
+                Message? message = System.Text.Json.JsonSerializer.Deserialize<Message>(jsonString);
+                if (message != null)
+                {
+                    OnMessageReceived?.Invoke(message);
+					Broadcast(message, client);
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Normal shutdown
+        }
+        catch (IOException)
+        {
+            Console.WriteLine($"Connection lost with {endpoint}.");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error receiving from client {endpoint}: {ex.Message}");
+        }
+        finally
+        {
+            DisconnectClient(client, endpoint);
+        }
     }
 
     /// <summary>
@@ -145,8 +196,68 @@ public class Server
     /// </summary>
     public void Broadcast(Message message)
     {
-        throw new NotImplementedException("Implement Broadcast() - see TODO in comments above");
+        string jsonString = System.Text.Json.JsonSerializer.Serialize(message);
+        byte[] payloadBytes = System.Text.Encoding.UTF8.GetBytes(jsonString);
+        byte[] lengthPrefix = BitConverter.GetBytes(payloadBytes.Length);
+
+        List<TcpClient> clientsCopy;
+        lock (_clientsLock)
+        {
+            clientsCopy = new List<TcpClient>(_clients);
+        }
+
+        foreach (var client in clientsCopy)
+        {
+            try
+            {
+                if (client.Connected)
+                {
+                    NetworkStream stream = client.GetStream();
+                    stream.Write(lengthPrefix, 0, lengthPrefix.Length);
+                    stream.Write(payloadBytes, 0, payloadBytes.Length);
+                }
+            }
+            catch (Exception ex)
+            {
+				Console.WriteLine($"Error sending to client {client.Client.RemoteEndPoint}: {ex.Message}");
+            }
+        }
     }
+	
+	public void Broadcast(Message message, TcpClient? excludeClient = null)
+	{
+		string jsonString = System.Text.Json.JsonSerializer.Serialize(message);
+		byte[] payloadBytes = System.Text.Encoding.UTF8.GetBytes(jsonString);
+		byte[] lengthPrefix = BitConverter.GetBytes(payloadBytes.Length);
+
+		List<TcpClient> clientsCopy;
+		lock (_clientsLock)
+		{
+			clientsCopy = new List<TcpClient>(_clients);
+		}
+
+		foreach (var client in clientsCopy)
+		{
+			if (excludeClient != null && client == excludeClient)
+			{
+				continue;
+			}
+
+			try
+			{
+				if (client.Connected)
+				{
+					NetworkStream stream = client.GetStream();
+					stream.Write(lengthPrefix, 0, lengthPrefix.Length);
+					stream.Write(payloadBytes, 0, payloadBytes.Length);
+				}
+			}
+			catch (Exception ex)
+			{
+                Console.WriteLine($"Error sending to client {client.Client.RemoteEndPoint}: {ex.Message}");
+			}
+		}
+	}
 
     /// <summary>
     /// Stop the server and close all connections.
