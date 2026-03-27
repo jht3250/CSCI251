@@ -56,6 +56,8 @@ class Program
     private static Server? _server;
     private static Client? _client;
     private static ConsoleUI? _ui;
+	private static MessageQueue? _queue;
+	private static CancellationTokenSource _cts;
     private static string _username = "User";
     private static string _clientEndpoint = "";
     // TODO: Declare your components as fields for access across methods
@@ -76,6 +78,9 @@ class Program
         _server = new Server();
         _client = new Client();
         _ui = new ConsoleUI();
+
+        _queue = new MessageQueue();
+        _cts = new CancellationTokenSource();
         // TODO: Initialize components
         // 1. Create Server for incoming connections
         // 2. Create Client for outgoing connection
@@ -85,13 +90,14 @@ class Program
         _server.OnClientConnected += endPoint => { Console.WriteLine($"[server] Client connected: {endPoint}"); };
         _server.OnClientDisconnected += endPoint => { Console.WriteLine($"[server] Client disconnected: {endPoint}"); };
         _server.OnMessageReceived += message => { 
-            Console.WriteLine($"[{message.Timestamp:HH:mm:ss}] {message.Sender}: {message.Content}"); 
-            _server.Broadcast(message);
+            _queue.EnqueueIncoming(message);
         };
 
         _client.OnConnected += endPoint => { _clientEndpoint = endPoint; Console.WriteLine($"[client] Connected to {endPoint}"); };
         _client.OnDisconnected += endPoint => { Console.WriteLine($"[client] Disconnected from {endPoint}"); };
-        _client.OnMessageReceived += message => { Console.WriteLine($"[{message.Timestamp:HH:mm:ss}] {message.Sender}: {message.Content}"); };
+        _client.OnMessageReceived += message => { 
+            _queue.EnqueueIncoming(message);
+			};
         // TODO: Subscribe to events
         // Server events:
         // - _server.OnClientConnected += endpoint => { ... };
@@ -105,6 +111,22 @@ class Program
 
         Console.WriteLine("Type /help for available commands");
         Console.WriteLine();
+
+		Task.Run(() => {
+		try
+		{
+			while (!_cts.Token.IsCancellationRequested)
+			{
+				Message incoming = _queue.DequeueIncomingBlocking(_cts.Token);
+				
+				Console.WriteLine($"[{incoming.Timestamp:HH:mm:ss}] {incoming.Sender}: {incoming.Content}");
+			}
+		}
+		catch (OperationCanceledException)
+		{
+				//empty
+		}
+		});
 
         // Main loop - handle user input
         bool running = true;
@@ -173,6 +195,8 @@ class Program
 
         // TODO: Implement graceful shutdown
         // 3. (Sprint 3) Stop peer discovery and heartbeat monitor
+		_cts.Cancel();
+		_queue.CompleteAdding();
         _server?.Stop();
         _client?.Disconnect();
 
@@ -222,16 +246,21 @@ class Program
             Console.WriteLine($"  [client] Connected to {_clientEndpoint}");
         }
     }
+	
 
-    private static void SendMessage(string content)
-    {
-        if (string.IsNullOrWhiteSpace(content)) return;
+	private static void SendMessage(string content)
+	{
+		var msg = new Message { Sender = _username, Content = content };
 
-        var msg = new Message { Sender = _username, Content = content };
+		if (_client != null && _client.IsConnected)
+		{
+			_client.Send(msg);	
+		}
+		else if (_server != null && _server.IsListening)
+		{
+			_server.Broadcast(msg);
+		}
 
-        _server?.Broadcast(msg);
-        _client?.Send(msg);
-
-        //Console.WriteLine($"[you]: {content}");
-    }
+		_queue.EnqueueIncoming(msg); 
+	}
 }

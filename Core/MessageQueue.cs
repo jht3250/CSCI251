@@ -50,6 +50,8 @@ public class MessageQueue
     // Option 1: BlockingCollection<Message> (recommended)
     // Option 2: ConcurrentQueue<Message>
     // Option 3: Queue<Message> with lock
+    private readonly BlockingCollection<Message> _incomingMessages = new();
+    private readonly BlockingCollection<Message> _outgoingMessages = new();
 
     /// <summary>
     /// Enqueue an incoming message (received from network).
@@ -60,7 +62,7 @@ public class MessageQueue
     /// </summary>
     public void EnqueueIncoming(Message message)
     {
-        throw new NotImplementedException("Implement EnqueueIncoming() - see TODO in comments above");
+        _incomingMessages.Add(message);
     }
 
     /// <summary>
@@ -76,7 +78,7 @@ public class MessageQueue
     /// </summary>
     public Message DequeueIncomingBlocking(CancellationToken cancellationToken = default)
     {
-        throw new NotImplementedException("Implement DequeueIncomingBlocking() - see TODO in comments above");
+        return _incomingMessages.Take(cancellationToken);
     }
 
     /// <summary>
@@ -91,7 +93,7 @@ public class MessageQueue
     /// </summary>
     public bool TryDequeueIncoming(out Message? message)
     {
-        throw new NotImplementedException("Implement TryDequeueIncoming() - see TODO in comments above");
+        return _incomingMessages.TryTake(out message);
     }
 
     /// <summary>
@@ -103,7 +105,7 @@ public class MessageQueue
     /// </summary>
     public void EnqueueOutgoing(Message message)
     {
-        throw new NotImplementedException("Implement EnqueueOutgoing() - see TODO in comments above");
+        _outgoingMessages.Add(message);
     }
 
     /// <summary>
@@ -117,7 +119,7 @@ public class MessageQueue
     /// </summary>
     public Message DequeueOutgoingBlocking(CancellationToken cancellationToken = default)
     {
-        throw new NotImplementedException("Implement DequeueOutgoingBlocking() - see TODO in comments above");
+        return _outgoingMessages.Take(cancellationToken);
     }
 
     /// <summary>
@@ -130,7 +132,7 @@ public class MessageQueue
     /// </summary>
     public bool TryDequeueOutgoing(out Message? message)
     {
-        throw new NotImplementedException("Implement TryDequeueOutgoing() - see TODO in comments above");
+        return _outgoingMessages.TryTake(out message);
     }
 
     /// <summary>
@@ -138,14 +140,14 @@ public class MessageQueue
     ///
     /// TODO: Return the count of your incoming queue
     /// </summary>
-    public int IncomingCount => throw new NotImplementedException("Implement IncomingCount property");
+    public int IncomingCount => _incomingMessages.Count;
 
     /// <summary>
     /// Get the count of outgoing messages waiting to be sent.
     ///
     /// TODO: Return the count of your outgoing queue
     /// </summary>
-    public int OutgoingCount => throw new NotImplementedException("Implement OutgoingCount property");
+    public int OutgoingCount => _outgoingMessages.Count;
 
     /// <summary>
     /// Signal that no more messages will be added.
@@ -158,6 +160,7 @@ public class MessageQueue
     /// </summary>
     public void CompleteAdding()
     {
-        throw new NotImplementedException("Implement CompleteAdding() - see TODO in comments above");
+        _incomingMessages.CompleteAdding();
+        _outgoingMessages.CompleteAdding();
     }
 }

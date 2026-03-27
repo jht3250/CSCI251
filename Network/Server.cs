@@ -173,6 +173,7 @@ public class Server
                 if (message != null)
                 {
                     OnMessageReceived?.Invoke(message);
+					Broadcast(message, client);
                 }
             }
         }
@@ -261,10 +262,45 @@ public class Server
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error sending to client {client.Client.RemoteEndPoint}: {ex.Message}");
+				Console.WriteLine($"Error sending to client {client.Client.RemoteEndPoint}: {ex.Message}");
             }
         }
     }
+	
+	public void Broadcast(Message message, TcpClient? excludeClient = null)
+	{
+		string jsonString = System.Text.Json.JsonSerializer.Serialize(message);
+		byte[] payloadBytes = System.Text.Encoding.UTF8.GetBytes(jsonString);
+		byte[] lengthPrefix = BitConverter.GetBytes(payloadBytes.Length);
+
+		List<TcpClient> clientsCopy;
+		lock (_clientsLock)
+		{
+			clientsCopy = new List<TcpClient>(_clients);
+		}
+
+		foreach (var client in clientsCopy)
+		{
+			if (excludeClient != null && client == excludeClient)
+			{
+				continue;
+			}
+
+			try
+			{
+				if (client.Connected)
+				{
+					NetworkStream stream = client.GetStream();
+					stream.Write(lengthPrefix, 0, lengthPrefix.Length);
+					stream.Write(payloadBytes, 0, payloadBytes.Length);
+				}
+			}
+			catch (Exception ex)
+			{
+                Console.WriteLine($"Error sending to client {client.Client.RemoteEndPoint}: {ex.Message}");
+			}
+		}
+	}
 
     /// <summary>
     /// Stop the server and close all connections.
