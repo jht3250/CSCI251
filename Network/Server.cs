@@ -53,6 +53,9 @@ public class Server
     private readonly Dictionary<string, HashSet<TcpClient>> _rooms = new();
     private readonly object _roomsLock = new();
 
+    // Debug mode: print wire messages before sending
+    public bool DebugMode { get; set; } = false;
+
     // Events: invoke these with OnXxx?.Invoke(...) when something happens
     // Program.cs subscribes with: server.OnXxx += (args) => { ... };
     public event Action<string>? OnClientConnected;      // endpoint string, e.g. "192.168.1.5:54321"
@@ -414,6 +417,13 @@ public class Server
                 }
 
                 string jsonString = System.Text.Json.JsonSerializer.Serialize(msgCopy);
+
+                if (DebugMode)
+                {
+                    string endpoint = client.Client.RemoteEndPoint?.ToString() ?? "Unknown";
+                    Console.WriteLine($"[debug] -> {endpoint}: {jsonString}");
+                }
+
                 byte[] payloadBytes = System.Text.Encoding.UTF8.GetBytes(jsonString);
                 byte[] lengthPrefix = BitConverter.GetBytes(payloadBytes.Length);
                 NetworkStream stream = client.GetStream();

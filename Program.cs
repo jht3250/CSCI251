@@ -200,7 +200,22 @@ class Program
                     break;
 
                 case CommandType.Unknown:
-                    Console.WriteLine("unknown command");
+                    if (cmdres.Message == "debug")
+                    {
+                        if (_server != null)
+                        {
+                            _server.DebugMode = !_server.DebugMode;
+                            Console.WriteLine($"Server debug mode: {(_server.DebugMode ? "ON" : "OFF")}");
+                        }
+                        else
+                        {
+                            Console.WriteLine("No server running.");
+                        }
+                    }
+                    else
+                    {
+                        Console.WriteLine("unknown command");
+                    }
                     break;
 
                 case CommandType.CreateRoom:

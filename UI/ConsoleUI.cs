@@ -120,6 +120,11 @@ public class ConsoleUI
                     cmdres.CommandType = CommandType.Rooms;
                     break;
 
+                case "/debug":
+                    cmdres.CommandType = CommandType.Unknown;
+                    cmdres.Message = "debug";
+                    break;
+
                 case string s when s.StartsWith("/create "):
                     string[] createArgs = input.Split(" ", 2, StringSplitOptions.RemoveEmptyEntries);
                     if (createArgs.Length != 2)
