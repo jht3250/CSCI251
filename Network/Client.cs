@@ -215,14 +215,22 @@ public class Client
         }
         try
         {
-            // Sprint 2: Encrypt content before sending
-            if (_aesEncryption != null && message.Type == MessageType.Text)
+            // Sprint 2: Encrypt a copy, don't mutate the original
+            var wireMsg = new Message
             {
-                message.EncryptedContent = _aesEncryption.Encrypt(message.Content);
-                message.Content = "[encrypted]";
+                Id = message.Id,
+                Sender = message.Sender,
+                Content = message.Content,
+                Timestamp = message.Timestamp,
+                Type = message.Type
+            };
+            if (_aesEncryption != null && wireMsg.Type == MessageType.Text)
+            {
+                wireMsg.EncryptedContent = _aesEncryption.Encrypt(wireMsg.Content);
+                wireMsg.Content = "[encrypted]";
             }
 
-            string json = JsonSerializer.Serialize(message);
+            string json = JsonSerializer.Serialize(wireMsg);
             byte[] payload = Encoding.UTF8.GetBytes(json);
             byte[] lengthPrefix = BitConverter.GetBytes(payload.Length);
             _stream.Write(lengthPrefix, 0, lengthPrefix.Length);
