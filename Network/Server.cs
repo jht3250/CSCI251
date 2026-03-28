@@ -64,7 +64,14 @@ public class Server
     /// </summary>
     public void Start(int port)
     {
-        throw new NotImplementedException("Implement Start() - see TODO in comments above");
+        Port = port;
+        _cancellationTokenSource = new CancellationTokenSource();
+        _listener = new TcpListener(IPAddress.Any, port);
+        _listener.Start();
+        IsListening = true;
+
+        Task.Run(() => AcceptClientsAsync());
+        Console.WriteLine($"Listening on port: {port}. Waiting for connections...");
     }
 
     /// <summary>
@@ -82,7 +89,31 @@ public class Server
     /// </summary>
     private async Task AcceptClientsAsync()
     {
-        throw new NotImplementedException("Implement AcceptClientsAsync() - see TODO in comments above");
+        try
+        {
+            while (!_cancellationTokenSource?.Token.IsCancellationRequested ?? false)
+            {
+                if (_listener == null || _cancellationTokenSource == null) break;
+                TcpClient client = await _listener.AcceptTcpClientAsync(_cancellationTokenSource.Token);
+                string endpoint = client.Client.RemoteEndPoint?.ToString() ?? "Unknown";
+
+                lock (_clientsLock)
+                {
+                    _clients.Add(client);
+                }
+
+                OnClientConnected?.Invoke(endpoint);
+                _ = Task.Run(() => ReceiveFromClientAsync(client, endpoint));
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Normal shutdown
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error accepting clients: {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -177,7 +208,19 @@ public class Server
     /// </summary>
     private void DisconnectClient(TcpClient client, string endpoint)
     {
-        throw new NotImplementedException("Implement DisconnectClient() - see TODO in comments above");
+        lock (_clientsLock)
+        {
+            _clients.Remove(client);
+        }
+        try
+        {
+            client.Close();
+        }
+        catch (Exception ex)
+        {
+            // do nothing, we're disconnecting anyway
+        }
+        OnClientDisconnected?.Invoke(endpoint);
     }
 
     /// <summary>
@@ -271,7 +314,33 @@ public class Server
     /// </summary>
     public void Stop()
     {
-        throw new NotImplementedException("Implement Stop() - see TODO in comments above");
+        _cancellationTokenSource?.Cancel();
+
+        try
+        {
+            _listener?.Stop();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error stopping listener: {ex.Message}");
+        }
+
+        IsListening = false;
+        lock (_clientsLock)
+        {
+            foreach (TcpClient client in _clients)
+            {
+                try
+                {
+                    client.Close();
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error closing client {client.Client.RemoteEndPoint}: {ex.Message}");
+                }
+            }
+            _clients.Clear();
+        }
     }
 
     /// <summary>
