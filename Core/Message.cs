@@ -20,7 +20,8 @@ public enum MessageType
     KeyExchange,    // Sprint 2: Public key exchange
     SessionKey,     // Sprint 2: Encrypted session key
     Heartbeat,      // Sprint 3: Connection health check
-    PeerDiscovery   // Sprint 3: Peer announcement
+    PeerDiscovery,  // Sprint 3: Peer announcement
+    RoomCommand     // Sprint 2: Room management command (join/create/leave/list)
 }
 
 /// <summary>

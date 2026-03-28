@@ -236,7 +236,8 @@ public class Client
                 Sender = message.Sender,
                 Content = message.Content,
                 Timestamp = message.Timestamp,
-                Type = message.Type
+                Type = message.Type,
+                Room = message.Room
             };
             if (_aesEncryption != null && wireMsg.Type == MessageType.Text)
             {

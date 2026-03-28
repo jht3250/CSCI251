@@ -229,16 +229,24 @@ public class Server
                         message.Signature = null;
                     }
 
-                    OnMessageReceived?.Invoke(message);
-
-                    // Sprint 2: Route to room if specified, otherwise broadcast
-                    if (!string.IsNullOrEmpty(message.Room))
+                    // Sprint 2: Handle room commands from clients
+                    if (message.Type == MessageType.RoomCommand)
                     {
-                        SendToRoom(message.Room, message, client);
+                        HandleRoomCommand(client, message);
                     }
                     else
                     {
-                        Broadcast(message, client);
+                        OnMessageReceived?.Invoke(message);
+
+                        // Sprint 2: Route to room if specified, otherwise broadcast
+                        if (!string.IsNullOrEmpty(message.Room))
+                        {
+                            SendToRoom(message.Room, message, client);
+                        }
+                        else
+                        {
+                            Broadcast(message, client);
+                        }
                     }
                 }
             }
@@ -283,6 +291,11 @@ public class Server
             _clientEncryption.Remove(client);
             _clientSigningKeys.Remove(client);
         }
+        lock (_roomsLock)
+        {
+            foreach (var room in _rooms.Values)
+                room.Remove(client);
+        }
         try
         {
             client.Close();
@@ -310,6 +323,9 @@ public class Server
     /// </summary>
     public void Broadcast(Message message)
     {
+        // Never broadcast room-targeted messages — use SendToRoom instead
+        if (!string.IsNullOrEmpty(message.Room)) return;
+
         List<TcpClient> clientsCopy;
         lock (_clientsLock)
         {
@@ -324,6 +340,9 @@ public class Server
 
     public void Broadcast(Message message, TcpClient? excludeClient = null)
     {
+        // Never broadcast room-targeted messages — use SendToRoom instead
+        if (!string.IsNullOrEmpty(message.Room)) return;
+
         if (excludeClient == null)
         {
             Broadcast(message);
@@ -560,20 +579,22 @@ public class Server
         }
     }
 
-    public bool JoinRoom(string room, TcpClient client)
+    public bool JoinRoom(string room, TcpClient? client)
     {
         lock (_roomsLock)
         {
             if (!_rooms.ContainsKey(room)) return false;
+            if (client == null) return true; // Server operator - tracked in Program.cs
             return _rooms[room].Add(client);
         }
     }
 
-    public bool LeaveRoom(string room, TcpClient client)
+    public bool LeaveRoom(string room, TcpClient? client)
     {
         lock (_roomsLock)
         {
             if (!_rooms.ContainsKey(room)) return false;
+            if (client == null) return true; // Server operator - tracked in Program.cs
             return _rooms[room].Remove(client);
         }
     }
@@ -584,6 +605,54 @@ public class Server
         {
             return new List<string>(_rooms.Keys);
         }
+    }
+
+    /// <summary>
+    /// Handle a room command message from a client and send a response back.
+    /// </summary>
+    private void HandleRoomCommand(TcpClient client, Message message)
+    {
+        string command = message.Content; // e.g. "join", "create", "leave", "list"
+        string room = message.Room ?? "";
+        string response;
+
+        switch (command)
+        {
+            case "create":
+                bool created = CreateRoom(room);
+                response = created ? $"Room {room} created." : $"Room {room} already exists.";
+                break;
+            case "join":
+                if (string.IsNullOrEmpty(room))
+                {
+                    response = "Room name required.";
+                }
+                else
+                {
+                    bool joined = JoinRoom(room, client);
+                    response = joined ? $"Joined room {room}." : $"Could not join room {room} (doesn't exist or already joined).";
+                }
+                break;
+            case "leave":
+                bool left = LeaveRoom(room, client);
+                response = left ? $"Left room {room}." : $"Could not leave room {room}.";
+                break;
+            case "list":
+                var rooms = GetRooms();
+                response = rooms.Count == 0 ? "No rooms available." : "Available rooms:\n" + string.Join("\n", rooms.Select(r => $"  {r}"));
+                break;
+            default:
+                response = $"Unknown room command: {command}";
+                break;
+        }
+
+        var responseMsg = new Message
+        {
+            Sender = "Server",
+            Content = response,
+            Type = MessageType.Text
+        };
+        SendToClient(client, responseMsg);
     }
 
     /// <summary>
