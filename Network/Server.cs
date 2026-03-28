@@ -20,6 +20,7 @@
 using System.Net;
 using System.Net.Sockets;
 using SecureMessenger.Core;
+using SecureMessenger.Security;
 
 namespace SecureMessenger.Network;
 
@@ -40,6 +41,10 @@ public class Server
     private readonly List<TcpClient> _clients = new();
     private readonly object _clientsLock = new();
     private CancellationTokenSource? _cancellationTokenSource;
+
+    // Sprint 2: Per-client security state
+    private readonly Dictionary<TcpClient, AesEncryption> _clientEncryption = new();
+    private readonly object _encryptionLock = new();
 
     // Events: invoke these with OnXxx?.Invoke(...) when something happens
     // Program.cs subscribes with: server.OnXxx += (args) => { ... };
@@ -103,6 +108,18 @@ public class Server
                 }
 
                 OnClientConnected?.Invoke(endpoint);
+
+                // Sprint 2: Perform key exchange before starting receive loop
+                var aes = await PerformKeyExchangeAsync(client);
+                if (aes != null)
+                {
+                    lock (_encryptionLock)
+                    {
+                        _clientEncryption[client] = aes;
+                    }
+                    Console.WriteLine($"[security] Encrypted session established with {endpoint}");
+                }
+
                 _ = Task.Run(() => ReceiveFromClientAsync(client, endpoint));
             }
         }
@@ -172,6 +189,18 @@ public class Server
                 Message? message = System.Text.Json.JsonSerializer.Deserialize<Message>(jsonString);
                 if (message != null)
                 {
+                    // Sprint 2: Decrypt incoming messages
+                    AesEncryption? aes = null;
+                    lock (_encryptionLock)
+                    {
+                        _clientEncryption.TryGetValue(client, out aes);
+                    }
+                    if (aes != null && message.Type == MessageType.Text && message.EncryptedContent != null)
+                    {
+                        message.Content = aes.Decrypt(message.EncryptedContent);
+                        message.EncryptedContent = null;
+                    }
+
                     OnMessageReceived?.Invoke(message);
                     Broadcast(message, client);
                 }
@@ -212,6 +241,10 @@ public class Server
         {
             _clients.Remove(client);
         }
+        lock (_encryptionLock)
+        {
+            _clientEncryption.Remove(client);
+        }
         try
         {
             client.Close();
@@ -239,10 +272,6 @@ public class Server
     /// </summary>
     public void Broadcast(Message message)
     {
-        string jsonString = System.Text.Json.JsonSerializer.Serialize(message);
-        byte[] payloadBytes = System.Text.Encoding.UTF8.GetBytes(jsonString);
-        byte[] lengthPrefix = BitConverter.GetBytes(payloadBytes.Length);
-
         List<TcpClient> clientsCopy;
         lock (_clientsLock)
         {
@@ -255,6 +284,29 @@ public class Server
             {
                 if (client.Connected)
                 {
+                    // Sprint 2: Encrypt per-client
+                    var msgCopy = new Message
+                    {
+                        Id = message.Id,
+                        Sender = message.Sender,
+                        Content = message.Content,
+                        Timestamp = message.Timestamp,
+                        Type = message.Type
+                    };
+                    AesEncryption? aes = null;
+                    lock (_encryptionLock)
+                    {
+                        _clientEncryption.TryGetValue(client, out aes);
+                    }
+                    if (aes != null && msgCopy.Type == MessageType.Text)
+                    {
+                        msgCopy.EncryptedContent = aes.Encrypt(msgCopy.Content);
+                        msgCopy.Content = "[encrypted]";
+                    }
+
+                    string jsonString = System.Text.Json.JsonSerializer.Serialize(msgCopy);
+                    byte[] payloadBytes = System.Text.Encoding.UTF8.GetBytes(jsonString);
+                    byte[] lengthPrefix = BitConverter.GetBytes(payloadBytes.Length);
                     NetworkStream stream = client.GetStream();
                     stream.Write(lengthPrefix, 0, lengthPrefix.Length);
                     stream.Write(payloadBytes, 0, payloadBytes.Length);
@@ -269,9 +321,11 @@ public class Server
 
     public void Broadcast(Message message, TcpClient? excludeClient = null)
     {
-        string jsonString = System.Text.Json.JsonSerializer.Serialize(message);
-        byte[] payloadBytes = System.Text.Encoding.UTF8.GetBytes(jsonString);
-        byte[] lengthPrefix = BitConverter.GetBytes(payloadBytes.Length);
+        if (excludeClient == null)
+        {
+            Broadcast(message);
+            return;
+        }
 
         List<TcpClient> clientsCopy;
         lock (_clientsLock)
@@ -281,15 +335,35 @@ public class Server
 
         foreach (var client in clientsCopy)
         {
-            if (excludeClient != null && client == excludeClient)
-            {
-                continue;
-            }
+            if (client == excludeClient) continue;
 
             try
             {
                 if (client.Connected)
                 {
+                    // Sprint 2: Encrypt per-client
+                    var msgCopy = new Message
+                    {
+                        Id = message.Id,
+                        Sender = message.Sender,
+                        Content = message.Content,
+                        Timestamp = message.Timestamp,
+                        Type = message.Type
+                    };
+                    AesEncryption? aes = null;
+                    lock (_encryptionLock)
+                    {
+                        _clientEncryption.TryGetValue(client, out aes);
+                    }
+                    if (aes != null && msgCopy.Type == MessageType.Text)
+                    {
+                        msgCopy.EncryptedContent = aes.Encrypt(msgCopy.Content);
+                        msgCopy.Content = "[encrypted]";
+                    }
+
+                    string jsonString = System.Text.Json.JsonSerializer.Serialize(msgCopy);
+                    byte[] payloadBytes = System.Text.Encoding.UTF8.GetBytes(jsonString);
+                    byte[] lengthPrefix = BitConverter.GetBytes(payloadBytes.Length);
                     NetworkStream stream = client.GetStream();
                     stream.Write(lengthPrefix, 0, lengthPrefix.Length);
                     stream.Write(payloadBytes, 0, payloadBytes.Length);
@@ -355,5 +429,87 @@ public class Server
                 return _clients.Count;
             }
         }
+    }
+
+    /// <summary>
+    /// Sprint 2: Perform key exchange as responder.
+    /// 1. Receive client's public key
+    /// 2. Send our public key
+    /// 3. Receive encrypted session key and decrypt it
+    /// 4. Return AesEncryption with the shared session key
+    /// </summary>
+    private async Task<AesEncryption?> PerformKeyExchangeAsync(TcpClient client)
+    {
+        try
+        {
+            var keyExchange = new KeyExchange();
+            NetworkStream stream = client.GetStream();
+
+            // Step 1: Receive client's public key
+            var clientKeyMsg = await ReceiveRawAsync(stream);
+            if (clientKeyMsg?.Type == MessageType.KeyExchange && clientKeyMsg.PublicKey != null)
+            {
+                keyExchange.ReceivePublicKey(clientKeyMsg.PublicKey);
+            }
+
+            // Step 2: Send our public key
+            byte[] ourPublicKey = keyExchange.GetPublicKey();
+            var keyMsg = new Message
+            {
+                Type = MessageType.KeyExchange,
+                PublicKey = ourPublicKey,
+                Sender = "KeyExchange"
+            };
+            SendRaw(stream, keyMsg);
+
+            // Step 3: Receive encrypted session key
+            var sessionMsg = await ReceiveRawAsync(stream);
+            if (sessionMsg?.Type == MessageType.SessionKey && sessionMsg.EncryptedContent != null)
+            {
+                keyExchange.ReceiveEncryptedSessionKey(sessionMsg.EncryptedContent);
+            }
+
+            // Step 4: Create AES encryption with the shared session key
+            if (keyExchange.SessionKey != null)
+            {
+                return new AesEncryption(keyExchange.SessionKey);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[security] Key exchange failed: {ex.Message}");
+        }
+        return null;
+    }
+
+    private void SendRaw(NetworkStream stream, Message message)
+    {
+        string json = System.Text.Json.JsonSerializer.Serialize(message);
+        byte[] payload = System.Text.Encoding.UTF8.GetBytes(json);
+        byte[] lengthPrefix = BitConverter.GetBytes(payload.Length);
+        stream.Write(lengthPrefix, 0, lengthPrefix.Length);
+        stream.Write(payload, 0, payload.Length);
+    }
+
+    private async Task<Message?> ReceiveRawAsync(NetworkStream stream)
+    {
+        var lengthBuffer = new byte[4];
+        int bytesRead = await stream.ReadAsync(lengthBuffer, 0, 4);
+        if (bytesRead == 0) return null;
+
+        int messageLength = BitConverter.ToInt32(lengthBuffer, 0);
+        if (messageLength <= 0 || messageLength >= 1_000_000) return null;
+
+        var payloadBuffer = new byte[messageLength];
+        int totalRead = 0;
+        while (totalRead < messageLength)
+        {
+            int read = await stream.ReadAsync(payloadBuffer, totalRead, messageLength - totalRead);
+            if (read == 0) break;
+            totalRead += read;
+        }
+
+        string json = System.Text.Encoding.UTF8.GetString(payloadBuffer, 0, totalRead);
+        return System.Text.Json.JsonSerializer.Deserialize<Message>(json);
     }
 }

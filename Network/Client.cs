@@ -26,6 +26,7 @@ using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using SecureMessenger.Core;
+using SecureMessenger.Security;
 
 namespace SecureMessenger.Network;
 
@@ -45,6 +46,12 @@ public class Client
     private NetworkStream? _stream;
     private CancellationTokenSource? _cancellationTokenSource;
     private string _serverEndpoint = "";
+
+    // Sprint 2: Security components
+    private KeyExchange? _keyExchange;
+    private AesEncryption? _aesEncryption;
+    private MessageSigner? _messageSigner;
+    private RsaEncryption? _rsaEncryption;
 
     public event Action<string>? OnConnected;
     public event Action<string>? OnDisconnected;
@@ -78,6 +85,10 @@ public class Client
             await _client.ConnectAsync(host, port);
             _stream = _client.GetStream();
             _serverEndpoint = $"{host}:{port}";
+
+            // Sprint 2: Perform key exchange before starting receive loop
+            await PerformKeyExchangeAsync();
+
             OnConnected?.Invoke(_serverEndpoint);
             _ = Task.Run(ReceiveAsync);
             return true;
@@ -153,6 +164,15 @@ public class Client
                 var message = JsonSerializer.Deserialize<Message>(json);
                 if (message != null)
                 {
+                    // Sprint 2: Decrypt and verify incoming messages
+                    if (message.Type == MessageType.Text && _aesEncryption != null)
+                    {
+                        if (message.EncryptedContent != null)
+                        {
+                            message.Content = _aesEncryption.Decrypt(message.EncryptedContent);
+                            message.EncryptedContent = null;
+                        }
+                    }
                     OnMessageReceived?.Invoke(message);
                 }
             }
@@ -195,6 +215,13 @@ public class Client
         }
         try
         {
+            // Sprint 2: Encrypt content before sending
+            if (_aesEncryption != null && message.Type == MessageType.Text)
+            {
+                message.EncryptedContent = _aesEncryption.Encrypt(message.Content);
+                message.Content = "[encrypted]";
+            }
+
             string json = JsonSerializer.Serialize(message);
             byte[] payload = Encoding.UTF8.GetBytes(json);
             byte[] lengthPrefix = BitConverter.GetBytes(payload.Length);
@@ -220,5 +247,88 @@ public class Client
         _cancellationTokenSource?.Cancel();
         _stream?.Close();
         _client?.Close();
+        _rsaEncryption?.Dispose();
+    }
+
+    /// <summary>
+    /// Sprint 2: Perform key exchange as initiator.
+    /// 1. Send our public key
+    /// 2. Receive peer's public key
+    /// 3. Generate and send encrypted session key
+    /// 4. Establish AES encryption with shared session key
+    /// </summary>
+    private async Task PerformKeyExchangeAsync()
+    {
+        _keyExchange = new KeyExchange();
+        _rsaEncryption = new RsaEncryption();
+        _messageSigner = new MessageSigner(System.Security.Cryptography.RSA.Create());
+
+        // Step 1: Send our public key
+        byte[] ourPublicKey = _keyExchange.GetPublicKey();
+        var keyMsg = new Message
+        {
+            Type = MessageType.KeyExchange,
+            PublicKey = ourPublicKey,
+            Sender = "KeyExchange"
+        };
+        SendRaw(keyMsg);
+
+        // Step 2: Receive peer's public key
+        var peerKeyMsg = await ReceiveRawAsync();
+        if (peerKeyMsg?.Type == MessageType.KeyExchange && peerKeyMsg.PublicKey != null)
+        {
+            _keyExchange.ReceivePublicKey(peerKeyMsg.PublicKey);
+        }
+
+        // Step 3: Generate session key, encrypt with peer's public key, send it
+        byte[] encryptedSessionKey = _keyExchange.CreateEncryptedSessionKey();
+        var sessionMsg = new Message
+        {
+            Type = MessageType.SessionKey,
+            EncryptedContent = encryptedSessionKey,
+            Sender = "KeyExchange"
+        };
+        SendRaw(sessionMsg);
+        _keyExchange.Complete();
+
+        // Step 4: Create AES encryption with the shared session key
+        if (_keyExchange.SessionKey != null)
+        {
+            _aesEncryption = new AesEncryption(_keyExchange.SessionKey);
+            Console.WriteLine("[security] Encrypted session established.");
+        }
+    }
+
+    private void SendRaw(Message message)
+    {
+        if (_stream == null) return;
+        string json = JsonSerializer.Serialize(message);
+        byte[] payload = Encoding.UTF8.GetBytes(json);
+        byte[] lengthPrefix = BitConverter.GetBytes(payload.Length);
+        _stream.Write(lengthPrefix, 0, lengthPrefix.Length);
+        _stream.Write(payload, 0, payload.Length);
+    }
+
+    private async Task<Message?> ReceiveRawAsync()
+    {
+        if (_stream == null) return null;
+        var lengthBuffer = new byte[4];
+        int bytesRead = await _stream.ReadAsync(lengthBuffer, 0, 4);
+        if (bytesRead == 0) return null;
+
+        int messageLength = BitConverter.ToInt32(lengthBuffer, 0);
+        if (messageLength <= 0 || messageLength >= 1_000_000) return null;
+
+        var payloadBuffer = new byte[messageLength];
+        int totalRead = 0;
+        while (totalRead < messageLength)
+        {
+            int read = await _stream.ReadAsync(payloadBuffer, totalRead, messageLength - totalRead);
+            if (read == 0) break;
+            totalRead += read;
+        }
+
+        string json = Encoding.UTF8.GetString(payloadBuffer, 0, totalRead);
+        return JsonSerializer.Deserialize<Message>(json);
     }
 }

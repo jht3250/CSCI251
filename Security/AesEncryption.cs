@@ -86,7 +86,7 @@ public class AesEncryption
         byte[] cipherText = encrypter.TransformFinalBlock(plainBytes, 0, plainBytes.Length);
         byte[] result = new byte[aes.IV.Length + cipherText.Length];
         Buffer.BlockCopy(aes.IV, 0, result, 0, aes.IV.Length);
-        Buffer.BlockCopy(cipherText, 0, result, 0, cipherText.Length);
+        Buffer.BlockCopy(cipherText, 0, result, aes.IV.Length, cipherText.Length);
         return result;
     }
 
@@ -115,7 +115,7 @@ public class AesEncryption
         aes.Key = _key;
         aes.Mode = CipherMode.CBC;
         byte[] iv = new byte[16];
-        Buffer.BlockCopy(aes.IV, 0, iv, 0, 16);
+        Buffer.BlockCopy(ciphertext, 0, iv, 0, 16);
         aes.IV = iv;
         byte[] cipherExtract = new byte[ciphertext.Length - 16];
         Buffer.BlockCopy(ciphertext, 16, cipherExtract, 0, ciphertext.Length - 16);
@@ -123,6 +123,5 @@ public class AesEncryption
         byte[] decryption = decryptor.TransformFinalBlock(cipherExtract, 0, cipherExtract.Length);
         string plainText = Encoding.UTF8.GetString(decryption);
         return plainText;
-        throw new NotImplementedException("Implement Decrypt() - see TODO in comments above");
     }
 }
