@@ -61,6 +61,11 @@ public class ConsoleUI
         Console.WriteLine("/listen <port> - Start listening for incoming connections");
         Console.WriteLine("/peers - List all known peers");
         Console.WriteLine("/history - View message history");
+        Console.WriteLine("/create #room - Create a new chat room");
+        Console.WriteLine("/join #room - Join an existing room");
+        Console.WriteLine("/leave #room - Leave a room");
+        Console.WriteLine("/rooms - List available rooms");
+        Console.WriteLine("/msg #room message - Send a message to a specific room");
         Console.WriteLine("/quit - Exit the application");
     }
 
@@ -109,6 +114,55 @@ public class ConsoleUI
 
                 case "/peers":
                     cmdres.CommandType = CommandType.Peers;
+                    break;
+
+                case "/rooms":
+                    cmdres.CommandType = CommandType.Rooms;
+                    break;
+
+                case string s when s.StartsWith("/create "):
+                    string[] createArgs = input.Split(" ", 2, StringSplitOptions.RemoveEmptyEntries);
+                    if (createArgs.Length != 2)
+                    {
+                        Console.WriteLine("Usage: /create #room");
+                        break;
+                    }
+                    cmdres.CommandType = CommandType.CreateRoom;
+                    cmdres.Args = new[] { createArgs[1] };
+                    break;
+
+                case string s when s.StartsWith("/join "):
+                    string[] joinArgs = input.Split(" ", 2, StringSplitOptions.RemoveEmptyEntries);
+                    if (joinArgs.Length != 2)
+                    {
+                        Console.WriteLine("Usage: /join #room");
+                        break;
+                    }
+                    cmdres.CommandType = CommandType.JoinRoom;
+                    cmdres.Args = new[] { joinArgs[1] };
+                    break;
+
+                case string s when s.StartsWith("/leave "):
+                    string[] leaveArgs = input.Split(" ", 2, StringSplitOptions.RemoveEmptyEntries);
+                    if (leaveArgs.Length != 2)
+                    {
+                        Console.WriteLine("Usage: /leave #room");
+                        break;
+                    }
+                    cmdres.CommandType = CommandType.LeaveRoom;
+                    cmdres.Args = new[] { leaveArgs[1] };
+                    break;
+
+                case string s when s.StartsWith("/msg "):
+                    string[] msgArgs = input.Split(" ", 3, StringSplitOptions.RemoveEmptyEntries);
+                    if (msgArgs.Length < 3)
+                    {
+                        Console.WriteLine("Usage: /msg #room message");
+                        break;
+                    }
+                    cmdres.CommandType = CommandType.RoomMessage;
+                    cmdres.Args = new[] { msgArgs[1] };
+                    cmdres.Message = msgArgs[2];
                     break;
 
                 case string s when s.StartsWith("/listen"):
@@ -161,7 +215,12 @@ public enum CommandType
     Peers,
     History,
     Help,
-    Quit
+    Quit,
+    CreateRoom,
+    JoinRoom,
+    LeaveRoom,
+    Rooms,
+    RoomMessage
 }
 
 /// <summary>

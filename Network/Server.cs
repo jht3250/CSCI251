@@ -44,7 +44,14 @@ public class Server
 
     // Sprint 2: Per-client security state
     private readonly Dictionary<TcpClient, AesEncryption> _clientEncryption = new();
+    private readonly Dictionary<TcpClient, byte[]> _clientSigningKeys = new();
+    private System.Security.Cryptography.RSA? _serverSigningKey;
+    private MessageSigner? _serverSigner;
     private readonly object _encryptionLock = new();
+
+    // Sprint 2: Chat rooms
+    private readonly Dictionary<string, HashSet<TcpClient>> _rooms = new();
+    private readonly object _roomsLock = new();
 
     // Events: invoke these with OnXxx?.Invoke(...) when something happens
     // Program.cs subscribes with: server.OnXxx += (args) => { ... };
@@ -74,6 +81,10 @@ public class Server
         _listener = new TcpListener(IPAddress.Any, port);
         _listener.Start();
         IsListening = true;
+
+        // Sprint 2: Create server signing key
+        _serverSigningKey = System.Security.Cryptography.RSA.Create(2048);
+        _serverSigner = new MessageSigner(_serverSigningKey);
 
         Task.Run(() => AcceptClientsAsync());
         Console.WriteLine($"Listening on port: {port}. Waiting for connections...");
@@ -109,13 +120,14 @@ public class Server
 
                 OnClientConnected?.Invoke(endpoint);
 
-                // Sprint 2: Perform key exchange before starting receive loop
-                var aes = await PerformKeyExchangeAsync(client);
+                var (aes, peerSigningKey) = await PerformKeyExchangeAsync(client);
                 if (aes != null)
                 {
                     lock (_encryptionLock)
                     {
                         _clientEncryption[client] = aes;
+                        if (peerSigningKey != null)
+                            _clientSigningKeys[client] = peerSigningKey;
                     }
                     Console.WriteLine($"[security] Encrypted session established with {endpoint}");
                 }
@@ -191,18 +203,43 @@ public class Server
                 {
                     // Sprint 2: Decrypt incoming messages
                     AesEncryption? aes = null;
+                    byte[]? peerSignKey = null;
                     lock (_encryptionLock)
                     {
                         _clientEncryption.TryGetValue(client, out aes);
+                        _clientSigningKeys.TryGetValue(client, out peerSignKey);
                     }
+
                     if (aes != null && message.Type == MessageType.Text && message.EncryptedContent != null)
                     {
+                        // Verify signature before decrypting
+                        if (message.Signature != null && peerSignKey != null)
+                        {
+                            var verifier = new MessageSigner(System.Security.Cryptography.RSA.Create());
+                            bool valid = verifier.VerifyData(message.EncryptedContent, message.Signature, peerSignKey);
+                            if (!valid)
+                            {
+                                Console.WriteLine($"[security] Rejecting message from {endpoint} - invalid signature!");
+                                continue;
+                            }
+                        }
+
                         message.Content = aes.Decrypt(message.EncryptedContent);
                         message.EncryptedContent = null;
+                        message.Signature = null;
                     }
 
                     OnMessageReceived?.Invoke(message);
-                    Broadcast(message, client);
+
+                    // Sprint 2: Route to room if specified, otherwise broadcast
+                    if (!string.IsNullOrEmpty(message.Room))
+                    {
+                        SendToRoom(message.Room, message, client);
+                    }
+                    else
+                    {
+                        Broadcast(message, client);
+                    }
                 }
             }
         }
@@ -244,6 +281,7 @@ public class Server
         lock (_encryptionLock)
         {
             _clientEncryption.Remove(client);
+            _clientSigningKeys.Remove(client);
         }
         try
         {
@@ -280,42 +318,7 @@ public class Server
 
         foreach (var client in clientsCopy)
         {
-            try
-            {
-                if (client.Connected)
-                {
-                    // Sprint 2: Encrypt per-client
-                    var msgCopy = new Message
-                    {
-                        Id = message.Id,
-                        Sender = message.Sender,
-                        Content = message.Content,
-                        Timestamp = message.Timestamp,
-                        Type = message.Type
-                    };
-                    AesEncryption? aes = null;
-                    lock (_encryptionLock)
-                    {
-                        _clientEncryption.TryGetValue(client, out aes);
-                    }
-                    if (aes != null && msgCopy.Type == MessageType.Text)
-                    {
-                        msgCopy.EncryptedContent = aes.Encrypt(msgCopy.Content);
-                        msgCopy.Content = "[encrypted]";
-                    }
-
-                    string jsonString = System.Text.Json.JsonSerializer.Serialize(msgCopy);
-                    byte[] payloadBytes = System.Text.Encoding.UTF8.GetBytes(jsonString);
-                    byte[] lengthPrefix = BitConverter.GetBytes(payloadBytes.Length);
-                    NetworkStream stream = client.GetStream();
-                    stream.Write(lengthPrefix, 0, lengthPrefix.Length);
-                    stream.Write(payloadBytes, 0, payloadBytes.Length);
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error sending to client {client.Client.RemoteEndPoint}: {ex.Message}");
-            }
+            SendToClient(client, message);
         }
     }
 
@@ -336,43 +339,72 @@ public class Server
         foreach (var client in clientsCopy)
         {
             if (client == excludeClient) continue;
+            SendToClient(client, message);
+        }
+    }
 
-            try
+    /// <summary>
+    /// Sprint 2: Send to a specific room. Only clients who are members receive the message.
+    /// </summary>
+    public void SendToRoom(string room, Message message, TcpClient? excludeClient = null)
+    {
+        List<TcpClient> members;
+        lock (_roomsLock)
+        {
+            if (!_rooms.ContainsKey(room)) return;
+            members = new List<TcpClient>(_rooms[room]);
+        }
+
+        foreach (var client in members)
+        {
+            if (client == excludeClient) continue;
+            SendToClient(client, message);
+        }
+    }
+
+    private void SendToClient(TcpClient client, Message message)
+    {
+        try
+        {
+            if (client.Connected)
             {
-                if (client.Connected)
+                var msgCopy = new Message
                 {
-                    // Sprint 2: Encrypt per-client
-                    var msgCopy = new Message
-                    {
-                        Id = message.Id,
-                        Sender = message.Sender,
-                        Content = message.Content,
-                        Timestamp = message.Timestamp,
-                        Type = message.Type
-                    };
-                    AesEncryption? aes = null;
-                    lock (_encryptionLock)
-                    {
-                        _clientEncryption.TryGetValue(client, out aes);
-                    }
-                    if (aes != null && msgCopy.Type == MessageType.Text)
-                    {
-                        msgCopy.EncryptedContent = aes.Encrypt(msgCopy.Content);
-                        msgCopy.Content = "[encrypted]";
-                    }
-
-                    string jsonString = System.Text.Json.JsonSerializer.Serialize(msgCopy);
-                    byte[] payloadBytes = System.Text.Encoding.UTF8.GetBytes(jsonString);
-                    byte[] lengthPrefix = BitConverter.GetBytes(payloadBytes.Length);
-                    NetworkStream stream = client.GetStream();
-                    stream.Write(lengthPrefix, 0, lengthPrefix.Length);
-                    stream.Write(payloadBytes, 0, payloadBytes.Length);
+                    Id = message.Id,
+                    Sender = message.Sender,
+                    Content = message.Content,
+                    Timestamp = message.Timestamp,
+                    Type = message.Type,
+                    Room = message.Room
+                };
+                AesEncryption? aes = null;
+                lock (_encryptionLock)
+                {
+                    _clientEncryption.TryGetValue(client, out aes);
                 }
+                if (aes != null && msgCopy.Type == MessageType.Text)
+                {
+                    msgCopy.EncryptedContent = aes.Encrypt(msgCopy.Content);
+                    msgCopy.Content = "[encrypted]";
+
+                    // Sign the encrypted content
+                    if (_serverSigner != null)
+                    {
+                        msgCopy.Signature = _serverSigner.SignData(msgCopy.EncryptedContent);
+                    }
+                }
+
+                string jsonString = System.Text.Json.JsonSerializer.Serialize(msgCopy);
+                byte[] payloadBytes = System.Text.Encoding.UTF8.GetBytes(jsonString);
+                byte[] lengthPrefix = BitConverter.GetBytes(payloadBytes.Length);
+                NetworkStream stream = client.GetStream();
+                stream.Write(lengthPrefix, 0, lengthPrefix.Length);
+                stream.Write(payloadBytes, 0, payloadBytes.Length);
             }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error sending to client {client.Client.RemoteEndPoint}: {ex.Message}");
-            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error sending to client {client.Client.RemoteEndPoint}: {ex.Message}");
         }
     }
 
@@ -438,26 +470,29 @@ public class Server
     /// 3. Receive encrypted session key and decrypt it
     /// 4. Return AesEncryption with the shared session key
     /// </summary>
-    private async Task<AesEncryption?> PerformKeyExchangeAsync(TcpClient client)
+    private async Task<(AesEncryption?, byte[]?)> PerformKeyExchangeAsync(TcpClient client)
     {
         try
         {
             var keyExchange = new KeyExchange();
             NetworkStream stream = client.GetStream();
 
-            // Step 1: Receive client's public key
+            // Step 1: Receive client's public key (encryption + signing)
+            byte[]? peerSigningKey = null;
             var clientKeyMsg = await ReceiveRawAsync(stream);
             if (clientKeyMsg?.Type == MessageType.KeyExchange && clientKeyMsg.PublicKey != null)
             {
                 keyExchange.ReceivePublicKey(clientKeyMsg.PublicKey);
+                peerSigningKey = clientKeyMsg.Signature; // Client's signing public key
             }
 
-            // Step 2: Send our public key
+            // Step 2: Send our public key (encryption + signing)
             byte[] ourPublicKey = keyExchange.GetPublicKey();
             var keyMsg = new Message
             {
                 Type = MessageType.KeyExchange,
                 PublicKey = ourPublicKey,
+                Signature = _serverSigningKey?.ExportRSAPublicKey(),
                 Sender = "KeyExchange"
             };
             SendRaw(stream, keyMsg);
@@ -472,14 +507,14 @@ public class Server
             // Step 4: Create AES encryption with the shared session key
             if (keyExchange.SessionKey != null)
             {
-                return new AesEncryption(keyExchange.SessionKey);
+                return (new AesEncryption(keyExchange.SessionKey), peerSigningKey);
             }
         }
         catch (Exception ex)
         {
             Console.WriteLine($"[security] Key exchange failed: {ex.Message}");
         }
-        return null;
+        return (null, null);
     }
 
     private void SendRaw(NetworkStream stream, Message message)
@@ -511,5 +546,66 @@ public class Server
 
         string json = System.Text.Encoding.UTF8.GetString(payloadBuffer, 0, totalRead);
         return System.Text.Json.JsonSerializer.Deserialize<Message>(json);
+    }
+
+    // Sprint 2: Chat room management
+
+    public bool CreateRoom(string room)
+    {
+        lock (_roomsLock)
+        {
+            if (_rooms.ContainsKey(room)) return false;
+            _rooms[room] = new HashSet<TcpClient>();
+            return true;
+        }
+    }
+
+    public bool JoinRoom(string room, TcpClient client)
+    {
+        lock (_roomsLock)
+        {
+            if (!_rooms.ContainsKey(room)) return false;
+            return _rooms[room].Add(client);
+        }
+    }
+
+    public bool LeaveRoom(string room, TcpClient client)
+    {
+        lock (_roomsLock)
+        {
+            if (!_rooms.ContainsKey(room)) return false;
+            return _rooms[room].Remove(client);
+        }
+    }
+
+    public List<string> GetRooms()
+    {
+        lock (_roomsLock)
+        {
+            return new List<string>(_rooms.Keys);
+        }
+    }
+
+    /// <summary>
+    /// Find the TcpClient by endpoint string (used by Program.cs to map client endpoint to TcpClient)
+    /// </summary>
+    public TcpClient? GetClientByEndpoint(string endpoint)
+    {
+        lock (_clientsLock)
+        {
+            return _clients.FirstOrDefault(c =>
+                c.Client.RemoteEndPoint?.ToString() == endpoint);
+        }
+    }
+
+    /// <summary>
+    /// Get the first connected client (for single-client scenarios)
+    /// </summary>
+    public TcpClient? GetFirstClient()
+    {
+        lock (_clientsLock)
+        {
+            return _clients.FirstOrDefault();
+        }
     }
 }

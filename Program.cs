@@ -56,8 +56,8 @@ class Program
     private static Server? _server;
     private static Client? _client;
     private static ConsoleUI? _ui;
-	private static MessageQueue? _queue;
-	private static CancellationTokenSource _cts;
+    private static MessageQueue? _queue;
+    private static CancellationTokenSource _cts;
     private static string _username = "User";
     private static string _clientEndpoint = "";
     // TODO: Declare your components as fields for access across methods
@@ -89,15 +89,17 @@ class Program
 
         _server.OnClientConnected += endPoint => { Console.WriteLine($"[server] Client connected: {endPoint}"); };
         _server.OnClientDisconnected += endPoint => { Console.WriteLine($"[server] Client disconnected: {endPoint}"); };
-        _server.OnMessageReceived += message => { 
+        _server.OnMessageReceived += message =>
+        {
             _queue.EnqueueIncoming(message);
         };
 
         _client.OnConnected += endPoint => { _clientEndpoint = endPoint; Console.WriteLine($"[client] Connected to {endPoint}"); };
         _client.OnDisconnected += endPoint => { Console.WriteLine($"[client] Disconnected from {endPoint}"); };
-        _client.OnMessageReceived += message => { 
+        _client.OnMessageReceived += message =>
+        {
             _queue.EnqueueIncoming(message);
-			};
+        };
         // TODO: Subscribe to events
         // Server events:
         // - _server.OnClientConnected += endpoint => { ... };
@@ -112,21 +114,23 @@ class Program
         Console.WriteLine("Type /help for available commands");
         Console.WriteLine();
 
-		Task.Run(() => {
-		try
-		{
-			while (!_cts.Token.IsCancellationRequested)
-			{
-				Message incoming = _queue.DequeueIncomingBlocking(_cts.Token);
-				
-				Console.WriteLine($"[{incoming.Timestamp:HH:mm:ss}] {incoming.Sender}: {incoming.Content}");
-			}
-		}
-		catch (OperationCanceledException)
-		{
-				//empty
-		}
-		});
+        Task.Run(() =>
+        {
+            try
+            {
+                while (!_cts.Token.IsCancellationRequested)
+                {
+                    Message incoming = _queue.DequeueIncomingBlocking(_cts.Token);
+
+                    string roomPrefix = !string.IsNullOrEmpty(incoming.Room) ? $" {incoming.Room}" : "";
+                    Console.WriteLine($"[{incoming.Timestamp:HH:mm:ss}]{roomPrefix} {incoming.Sender}: {incoming.Content}");
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                //empty
+            }
+        });
 
         // Main loop - handle user input
         bool running = true;
@@ -190,13 +194,118 @@ class Program
                 case CommandType.Unknown:
                     Console.WriteLine("unknown command");
                     break;
+
+                case CommandType.CreateRoom:
+                    if (cmdres.Args != null && cmdres.Args.Length > 0)
+                    {
+                        string room = cmdres.Args[0];
+                        if (_server != null && _server.IsListening)
+                        {
+                            bool created = _server.CreateRoom(room);
+                            Console.WriteLine(created
+                                ? $"Room {room} created."
+                                : $"Room {room} already exists.");
+                        }
+                        else
+                        {
+                            Console.WriteLine("You must be running a server (/listen) to create rooms.");
+                        }
+                    }
+                    break;
+
+                case CommandType.JoinRoom:
+                    if (cmdres.Args != null && cmdres.Args.Length > 0)
+                    {
+                        string room = cmdres.Args[0];
+                        if (_server != null && _server.IsListening)
+                        {
+                            var client = _server.GetFirstClient();
+                            if (client != null)
+                            {
+                                bool joined = _server.JoinRoom(room, client);
+                                Console.WriteLine(joined
+                                    ? $"Joined room {room}."
+                                    : $"Could not join room {room} (doesn't exist or already joined).");
+                            }
+                            else
+                            {
+                                Console.WriteLine("No connected clients to join room.");
+                            }
+                        }
+                        else
+                        {
+                            Console.WriteLine("You must be running a server (/listen) to manage rooms.");
+                        }
+                    }
+                    break;
+
+                case CommandType.LeaveRoom:
+                    if (cmdres.Args != null && cmdres.Args.Length > 0)
+                    {
+                        string room = cmdres.Args[0];
+                        if (_server != null && _server.IsListening)
+                        {
+                            var client = _server.GetFirstClient();
+                            if (client != null)
+                            {
+                                bool left = _server.LeaveRoom(room, client);
+                                Console.WriteLine(left
+                                    ? $"Left room {room}."
+                                    : $"Could not leave room {room}.");
+                            }
+                        }
+                    }
+                    break;
+
+                case CommandType.Rooms:
+                    if (_server != null && _server.IsListening)
+                    {
+                        var rooms = _server.GetRooms();
+                        if (rooms.Count == 0)
+                        {
+                            Console.WriteLine("No rooms available.");
+                        }
+                        else
+                        {
+                            Console.WriteLine("Available rooms:");
+                            foreach (var r in rooms)
+                                Console.WriteLine($"  {r}");
+                        }
+                    }
+                    else
+                    {
+                        Console.WriteLine("You must be running a server (/listen) to list rooms.");
+                    }
+                    break;
+
+                case CommandType.RoomMessage:
+                    if (cmdres.Args != null && cmdres.Args.Length > 0 && cmdres.Message != null)
+                    {
+                        string room = cmdres.Args[0];
+                        var msg = new Message
+                        {
+                            Sender = _username,
+                            Content = cmdres.Message,
+                            Room = room
+                        };
+                        if (_server != null && _server.IsListening)
+                        {
+                            _server.SendToRoom(room, msg);
+                        }
+                        else if (_client != null && _client.IsConnected)
+                        {
+                            _client.Send(msg);
+                        }
+                        _queue.EnqueueIncoming(msg);
+                    }
+                    break;
             }
         }
 
         // TODO: Implement graceful shutdown
         // 3. (Sprint 3) Stop peer discovery and heartbeat monitor
-		_cts.Cancel();
-		_queue.CompleteAdding();
+        _cts.Cancel();
+        _queue.CompleteAdding();
         _server?.Stop();
         _client?.Disconnect();
 
@@ -213,13 +322,13 @@ class Program
         Console.WriteLine("  /connect <ip> <port>  - Connect to another messenger");
         Console.WriteLine("  /listen <port>        - Start listening for connections");
         Console.WriteLine("  /peers                - Show connection status");
+        Console.WriteLine("  /create #room         - Create a new chat room");
+        Console.WriteLine("  /join #room           - Join an existing room");
+        Console.WriteLine("  /leave #room          - Leave a room");
+        Console.WriteLine("  /rooms                - List available rooms");
+        Console.WriteLine("  /msg #room message    - Send a message to a specific room");
         Console.WriteLine("  /history              - View message history (Sprint 3)");
         Console.WriteLine("  /quit                 - Exit the application");
-        Console.WriteLine();
-        Console.WriteLine("Sprint Progression:");
-        Console.WriteLine("  Sprint 1: Basic /connect and /listen with message sending");
-        Console.WriteLine("  Sprint 2: Messages are encrypted end-to-end");
-        Console.WriteLine("  Sprint 3: Automatic peer discovery and reconnection");
         Console.WriteLine();
     }
 
@@ -246,21 +355,21 @@ class Program
             Console.WriteLine($"  [client] Connected to {_clientEndpoint}");
         }
     }
-	
 
-	private static void SendMessage(string content)
-	{
-		var msg = new Message { Sender = _username, Content = content };
 
-		if (_client != null && _client.IsConnected)
-		{
-			_client.Send(msg);	
-		}
-		else if (_server != null && _server.IsListening)
-		{
-			_server.Broadcast(msg);
-		}
+    private static void SendMessage(string content)
+    {
+        var msg = new Message { Sender = _username, Content = content };
 
-		_queue.EnqueueIncoming(msg); 
-	}
+        if (_client != null && _client.IsConnected)
+        {
+            _client.Send(msg);
+        }
+        else if (_server != null && _server.IsListening)
+        {
+            _server.Broadcast(msg);
+        }
+
+        _queue.EnqueueIncoming(msg);
+    }
 }

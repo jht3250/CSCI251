@@ -48,6 +48,9 @@ public class Message
     // Sprint 3: Target peer for directed messages
     public string? TargetPeerId { get; set; }
 
+    // Sprint 2: Chat room targeting
+    public string? Room { get; set; }
+
     public override string ToString()
     {
         return $"[{Timestamp:HH:mm:ss}] {Sender}: {Content}";

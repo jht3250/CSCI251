@@ -52,6 +52,8 @@ public class Client
     private AesEncryption? _aesEncryption;
     private MessageSigner? _messageSigner;
     private RsaEncryption? _rsaEncryption;
+    private System.Security.Cryptography.RSA? _signingKey;
+    private byte[]? _peerSigningPublicKey;
 
     public event Action<string>? OnConnected;
     public event Action<string>? OnDisconnected;
@@ -167,6 +169,18 @@ public class Client
                     // Sprint 2: Decrypt and verify incoming messages
                     if (message.Type == MessageType.Text && _aesEncryption != null)
                     {
+                        // Verify signature before decrypting
+                        if (message.Signature != null && message.EncryptedContent != null && _peerSigningPublicKey != null)
+                        {
+                            var verifier = new MessageSigner(System.Security.Cryptography.RSA.Create());
+                            bool valid = verifier.VerifyData(message.EncryptedContent, message.Signature, _peerSigningPublicKey);
+                            if (!valid)
+                            {
+                                Console.WriteLine($"[security] Rejecting message from {message.Sender} - invalid signature!");
+                                continue;
+                            }
+                        }
+
                         if (message.EncryptedContent != null)
                         {
                             message.Content = _aesEncryption.Decrypt(message.EncryptedContent);
@@ -228,6 +242,12 @@ public class Client
             {
                 wireMsg.EncryptedContent = _aesEncryption.Encrypt(wireMsg.Content);
                 wireMsg.Content = "[encrypted]";
+
+                // Sign the encrypted content
+                if (_messageSigner != null)
+                {
+                    wireMsg.Signature = _messageSigner.SignData(wireMsg.EncryptedContent);
+                }
             }
 
             string json = JsonSerializer.Serialize(wireMsg);
@@ -269,14 +289,17 @@ public class Client
     {
         _keyExchange = new KeyExchange();
         _rsaEncryption = new RsaEncryption();
-        _messageSigner = new MessageSigner(System.Security.Cryptography.RSA.Create());
+        _signingKey = System.Security.Cryptography.RSA.Create(2048);
+        _messageSigner = new MessageSigner(_signingKey);
 
-        // Step 1: Send our public key
+        // Step 1: Send our public key (encryption + signing)
         byte[] ourPublicKey = _keyExchange.GetPublicKey();
+        byte[] ourSigningPubKey = _signingKey.ExportRSAPublicKey();
         var keyMsg = new Message
         {
             Type = MessageType.KeyExchange,
             PublicKey = ourPublicKey,
+            Signature = ourSigningPubKey,
             Sender = "KeyExchange"
         };
         SendRaw(keyMsg);
@@ -286,6 +309,7 @@ public class Client
         if (peerKeyMsg?.Type == MessageType.KeyExchange && peerKeyMsg.PublicKey != null)
         {
             _keyExchange.ReceivePublicKey(peerKeyMsg.PublicKey);
+            _peerSigningPublicKey = peerKeyMsg.Signature;
         }
 
         // Step 3: Generate session key, encrypt with peer's public key, send it
