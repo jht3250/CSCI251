@@ -129,7 +129,13 @@ class Program
 
 
         _client.OnConnected += endPoint => { _clientEndpoint = endPoint; Console.WriteLine($"[client] Connected to {endPoint}"); };
-        _client.OnDisconnected += endPoint => { Console.WriteLine($"[client] Disconnected from {endPoint}"); };
+        _client.OnDisconnected += endPoint => {
+            Console.WriteLine($"[client] Disconnected from {endPoint}");
+            lock (_outgoingPeers)
+            {
+                _outgoingPeers.RemoveAll(c => !c.IsConnected);
+            }
+        };
 
 
         _localId = _discovery.LocalPeerId;
@@ -433,6 +439,14 @@ class Program
         _queue.CompleteAdding();
         _server?.Stop();
         _client?.Disconnect();
+
+        lock (_outgoingPeers)
+        {
+            foreach (var c in _outgoingPeers) c.Disconnect();
+        }
+
+        _heartbeat.Stop();
+        _discovery.Stop();
 
         Console.WriteLine("Goodbye!");
     }
