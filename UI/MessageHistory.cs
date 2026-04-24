@@ -39,7 +39,8 @@ public class MessageHistory
     /// </summary>
     public MessageHistory(string historyFile = "message_history.json")
     {
-        throw new NotImplementedException("Implement constructor - see TODO in comments above");
+        _historyFile = historyFile;
+        Load();
     }
 
     /// <summary>
@@ -52,7 +53,11 @@ public class MessageHistory
     /// </summary>
     public void SaveMessage(Message message)
     {
-        throw new NotImplementedException("Implement SaveMessage() - see TODO in comments above");
+        lock (_lock)
+        {
+            _messages.Add(message);
+            PersistToFile();
+        }
     }
 
     /// <summary>
@@ -72,7 +77,26 @@ public class MessageHistory
     /// </summary>
     public void Load()
     {
-        throw new NotImplementedException("Implement Load() - see TODO in comments above");
+        if (!File.Exists(_historyFile)) return;
+
+        try
+        {
+            string json = File.ReadAllText(_historyFile);
+            var loadedData = JsonSerializer.Deserialize<List<Message>>(json);
+
+            if (loadedData != null)
+            {
+                lock (_lock)
+                {
+                    _messages.Clear();
+                    _messages.AddRange(loadedData);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[History] Error loading history from {_historyFile}: {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -89,7 +113,16 @@ public class MessageHistory
     /// </summary>
     private void PersistToFile()
     {
-        throw new NotImplementedException("Implement PersistToFile() - see TODO in comments above");
+        try
+        {
+            var options = new JsonSerializerOptions { WriteIndented = true };
+            string json = JsonSerializer.Serialize(_messages, options);
+            File.WriteAllText(_historyFile, json);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[History] Error saving history to disk: {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -105,7 +138,18 @@ public class MessageHistory
     /// </summary>
     public IEnumerable<Message> GetHistory(int? limit = null)
     {
-        throw new NotImplementedException("Implement GetHistory() - see TODO in comments above");
+        lock (_lock)
+        {
+            // Use LINQ to sort by timestamp descending
+            var query = _messages.OrderByDescending(m => m.Timestamp);
+
+            if (limit.HasValue)
+            {
+                return query.Take(limit.Value).ToList();
+            }
+
+            return query.ToList();
+        }
     }
 
     /// <summary>
@@ -120,7 +164,16 @@ public class MessageHistory
     /// </summary>
     public void ShowHistory(int limit = 50)
     {
-        throw new NotImplementedException("Implement ShowHistory() - see TODO in comments above");
+        var history = GetHistory(limit).Reverse().ToList();
+
+        Console.WriteLine($"\n--- Message History (last {history.Count} messages) ---");
+
+        foreach (var msg in history)
+        {
+            Console.WriteLine(msg.ToString());
+        }
+
+        Console.WriteLine("--- End of History ---\n");
     }
 
     /// <summary>
@@ -133,6 +186,14 @@ public class MessageHistory
     /// </summary>
     public void Clear()
     {
-        throw new NotImplementedException("Implement Clear() - see TODO in comments above");
+        lock (_lock)
+        {
+            _messages.Clear();
+            if (File.Exists(_historyFile))
+            {
+                try { File.Delete(_historyFile); }
+                catch {  }
+            }
+        }
     }
 }
