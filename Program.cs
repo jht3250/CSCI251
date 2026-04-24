@@ -62,6 +62,15 @@ class Program
     private static string _clientEndpoint = "";
     private static readonly HashSet<string> _joinedRooms = new();
     private static string? _activeRoom;
+
+
+    private static readonly List<Client> _outgoingPeers = new();
+    private static PeerDiscovery _discovery = new();
+    private static HeartbeatMonitor _heartbeat = new();
+    private static MessageHistory _history = new();
+    private static ReconnectionPolicy? _reconnect;
+    private static string _localId = "";
+
     // TODO: Declare your components as fields for access across methods
     // Sprint 1-2 components:
     // private static Server? _server;
@@ -89,24 +98,60 @@ class Program
         // 3. Create ConsoleUI for user interface
         // 4. (Optional) Create MessageQueue if using producer/consumer pattern
 
-        _server.OnClientConnected += endPoint => { Console.WriteLine($"[server] Client connected: {endPoint}"); };
-        _server.OnClientDisconnected += endPoint => { Console.WriteLine($"[server] Client disconnected: {endPoint}"); };
-        _server.OnMessageReceived += message =>
-        {
-            // Only display room messages if the server operator is in that room
-            if (!string.IsNullOrEmpty(message.Room) && !_joinedRooms.Contains(message.Room))
+        Action<Message> handleMessage = (message) => {
+            if (message.Type == MessageType.Heartbeat)
+            {
+                _heartbeat.RecordHeartbeat(message.Sender);
                 return;
+            }
+
+            if (!string.IsNullOrEmpty(message.Room) && !_joinedRooms.Contains(message.Room))
+            {
+                return;
+            }
+
+            if (message.Type == MessageType.Text)
+            {
+                _history.SaveMessage(message);
+            }
+
             _queue.EnqueueIncoming(message);
         };
 
+        _server.HeartbeatMonitor = _heartbeat;
+        _client.HeartbeatMonitor = _heartbeat;
+
+        _server.OnMessageReceived += handleMessage;
+        _client.OnMessageReceived += handleMessage;
+
+        _server.OnClientConnected += endPoint => { Console.WriteLine($"[server] Client connected: {endPoint}"); };
+        _server.OnClientDisconnected += endPoint => { Console.WriteLine($"[server] Client disconnected: {endPoint}"); };
+
+
         _client.OnConnected += endPoint => { _clientEndpoint = endPoint; Console.WriteLine($"[client] Connected to {endPoint}"); };
         _client.OnDisconnected += endPoint => { Console.WriteLine($"[client] Disconnected from {endPoint}"); };
-        _client.OnMessageReceived += message =>
-        {
-            // Only display room messages if we've joined that room
-            if (!string.IsNullOrEmpty(message.Room) && !_joinedRooms.Contains(message.Room))
-                return;
-            _queue.EnqueueIncoming(message);
+
+
+        _localId = _discovery.LocalPeerId;
+        _reconnect = new ReconnectionPolicy(_client);
+
+        _discovery.OnPeerDiscovered += async (peer) => {
+            if (string.Compare(_localId, peer.Id) > 0)
+            {
+                Console.WriteLine($"[Discovery] Found peer {peer.Id}. Connecting...");
+                var newClient = new Client();
+
+                newClient.HeartbeatMonitor = _heartbeat;
+
+                newClient.OnMessageReceived += handleMessage;
+
+                bool connected = await newClient.ConnectAsync(peer.Address.ToString(), peer.Port);
+                if (connected)
+                {
+                    lock (_outgoingPeers) { _outgoingPeers.Add(newClient); }
+                    _heartbeat.StartMonitoring(peer.Id);
+                }
+            }
         };
         // TODO: Subscribe to events
         // Server events:
@@ -177,25 +222,43 @@ class Program
                     break;
 
                 case CommandType.History:
+                    _history.ShowHistory(20);
                     break;
 
                 case CommandType.Peers:
-                    HandlePeers();
+                    var known = _discovery.GetKnownPeers();
+                    foreach (var p in known)
+                    {
+                        bool alive = _heartbeat.IsAlive(p.Id);
+                        Console.WriteLine($"{p.Id} - {p.Address}:{p.Port} [{(alive ? "ALIVE" : "STALE")}]");
+                    }
                     break;
 
                 case CommandType.Listen:
-                    if (cmdres.Args != null && cmdres.Args.Length > 0)
-                        _server?.Start(int.Parse(cmdres.Args[0]));
+                    int port = int.Parse(cmdres.Args[0]);
+                    _server.Start(port);
+                    _discovery.Start(port);
+                    _heartbeat.Start();
+                    StartHeartbeatSender();
                     break;
 
                 case CommandType.Connect:
                     if (cmdres.Args != null && cmdres.Args.Length > 1)
                     {
                         Console.WriteLine($"Connecting to {cmdres.Args[0]}:{cmdres.Args[1]}...");
+
                         bool connected = await _client!.ConnectAsync(cmdres.Args[0], int.Parse(cmdres.Args[1]));
-                        Console.WriteLine(connected
-                            ? $"Connected to {cmdres.Args[0]}:{cmdres.Args[1]}"
-                            : $"Failed to connect to {cmdres.Args[0]}:{cmdres.Args[1]}");
+
+                        if (connected)
+                        {
+                            lock (_outgoingPeers)
+                            {
+                                if (!_outgoingPeers.Contains(_client))
+                                    _outgoingPeers.Add(_client);
+                            }
+                        }
+
+                        Console.WriteLine(connected ? "Connected!" : "Failed!");
                     }
                     break;
 
@@ -421,26 +484,67 @@ class Program
 
     private static void SendMessage(string content)
     {
-        var msg = new Message { Sender = _username, Content = content };
+        if (string.IsNullOrWhiteSpace(content)) return;
 
-        // If in a room, route message to that room instead of broadcasting
-        if (_activeRoom != null)
+        var msg = new Message
         {
-            msg.Room = _activeRoom;
-        }
+            Id = Guid.NewGuid(),
+            Sender = _discovery.LocalPeerId,
+            Content = content,
+            Timestamp = DateTime.Now,
+            Type = MessageType.Text,
+            Room = _activeRoom
+        };
 
-        if (_client != null && _client.IsConnected)
-        {
-            _client.Send(msg);
-        }
-        else if (_server != null && _server.IsListening)
-        {
-            if (_activeRoom != null)
-                _server.SendToRoom(_activeRoom, msg);
-            else
-                _server.Broadcast(msg);
-        }
+        BroadcastToMesh(msg);
 
+        _history.SaveMessage(msg);
         _queue.EnqueueIncoming(msg);
+    }
+    
+    private static void BroadcastToMesh(Message msg)
+    {
+        _server?.Broadcast(msg);
+
+        List<Client> snapshot;
+        lock (_outgoingPeers)
+        {
+            snapshot = _outgoingPeers.ToList();
+        }
+
+        foreach (var client in snapshot)
+        {
+            try
+            {
+                if (client.IsConnected)
+                {
+                    client.Send(msg);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[System] Failed to send to an outgoing peer: {ex.Message}");
+            }
+        }
+    }
+
+    private static void StartHeartbeatSender()
+    {
+        Task.Run(async () =>
+        {
+            while (!_cts.Token.IsCancellationRequested)
+            {
+                var ping = new Message
+                {
+                    Sender = _discovery.LocalPeerId,
+                    Type = MessageType.Heartbeat,
+                    Content = "ping"
+                };
+
+                BroadcastToMesh(ping);
+
+                await Task.Delay(_heartbeat.HeartbeatInterval);
+            }
+        });
     }
 }

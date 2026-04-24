@@ -89,8 +89,6 @@ public class PeerDiscovery
     /// </summary>
     private void BroadcastLoop()
     {
-private void BroadcastLoop()
-    {
         var broadcastEP = new IPEndPoint(IPAddress.Broadcast, _broadcastPort);
 
         while (!_cancellationTokenSource!.Token.IsCancellationRequested)

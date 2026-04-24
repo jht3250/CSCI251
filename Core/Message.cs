@@ -22,6 +22,7 @@ public enum MessageType
     Heartbeat,      // Sprint 3: Connection health check
     PeerDiscovery,  // Sprint 3: Peer announcement
     RoomCommand     // Sprint 2: Room management command (join/create/leave/list)
+
 }
 
 /// <summary>

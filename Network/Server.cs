@@ -65,6 +65,8 @@ public class Server
     public int Port { get; private set; }
     public bool IsListening { get; private set; }
 
+    public HeartbeatMonitor? HeartbeatMonitor { get; set; }
+
     /// <summary>
     /// Start listening for incoming connections on the specified port.
     ///
@@ -213,6 +215,12 @@ public class Server
                         _clientSigningKeys.TryGetValue(client, out peerSignKey);
                     }
 
+                    if (message.Type == MessageType.Heartbeat)
+                    {
+                        HeartbeatMonitor?.RecordHeartbeat(message.Sender);
+                        continue;
+                    }
+
                     if (aes != null && message.Type == MessageType.Text && message.EncryptedContent != null)
                     {
                         // Verify signature before decrypting
@@ -241,15 +249,15 @@ public class Server
                     {
                         OnMessageReceived?.Invoke(message);
 
-                        // Sprint 2: Route to room if specified, otherwise broadcast
-                        if (!string.IsNullOrEmpty(message.Room))
-                        {
-                            SendToRoom(message.Room, message, client);
-                        }
-                        else
-                        {
-                            Broadcast(message, client);
-                        }
+                        //// Sprint 2: Route to room if specified, otherwise broadcast
+                        //if (!string.IsNullOrEmpty(message.Room))
+                        //{
+                        //    SendToRoom(message.Room, message, client);
+                        //}
+                        //else
+                        //{
+                        //    Broadcast(message, client);
+                        //}
                     }
                 }
             }
@@ -268,6 +276,8 @@ public class Server
         }
         finally
         {
+            _heartbeat?.StopMonitoring(peerId);
+            _heartbeat?.TriggerFailure(peerId);
             DisconnectClient(client, endpoint);
         }
     }

@@ -61,6 +61,8 @@ public class Client
 
     public bool IsConnected => _client?.Connected ?? false;
 
+    public HeartbeatMonitor? HeartbeatMonitor { get; set; }
+
     /// <summary>
     /// Connect to a server at the specified address and port.
     ///
@@ -166,6 +168,12 @@ public class Client
                 var message = JsonSerializer.Deserialize<Message>(json);
                 if (message != null)
                 {
+                    if (message.Type == MessageType.Heartbeat)
+                    {
+                        HeartbeatMonitor?.RecordHeartbeat(message.Sender);
+                        continue;
+                    }
+
                     // Sprint 2: Decrypt and verify incoming messages
                     if (message.Type == MessageType.Text && _aesEncryption != null)
                     {
@@ -201,6 +209,8 @@ public class Client
         }
         finally
         {
+            _heartbeat?.StopMonitoring(peerId);
+            _heartbeat?.TriggerFailure(peerId);
             OnDisconnected?.Invoke(_serverEndpoint);
         }
     }
