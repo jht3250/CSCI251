@@ -267,22 +267,27 @@ class Program
                     if (cmdres.Args != null && cmdres.Args.Length > 0)
                     {
                         string room = cmdres.Args[0];
+                        var syncMsg = new Message
+                        {
+                            Sender = _discovery.LocalPeerId,
+                            Content = "create",
+                            Room = room,
+                            Type = MessageType.RoomCommand
+                        };
+
                         if (_server != null && _server.IsListening)
                         {
                             bool created = _server.CreateRoom(room);
                             Console.WriteLine(created
                                 ? $"Room {room} created."
                                 : $"Room {room} already exists.");
+
+                            // Propagate room state changes to peers in P2P mode.
+                            BroadcastToMesh(syncMsg);
                         }
                         else if (_client != null && _client.IsConnected)
                         {
-                            _client.Send(new Message
-                            {
-                                Sender = _username,
-                                Content = "create",
-                                Room = room,
-                                Type = MessageType.RoomCommand
-                            });
+                            _client.Send(syncMsg);
                         }
                         else
                         {
@@ -295,6 +300,14 @@ class Program
                     if (cmdres.Args != null && cmdres.Args.Length > 0)
                     {
                         string room = cmdres.Args[0];
+                        var syncMsg = new Message
+                        {
+                            Sender = _discovery.LocalPeerId,
+                            Content = "join",
+                            Room = room,
+                            Type = MessageType.RoomCommand
+                        };
+
                         if (_server != null && _server.IsListening)
                         {
                             if (_server.JoinRoom(room, null))
@@ -302,6 +315,9 @@ class Program
                                 _joinedRooms.Add(room);
                                 _activeRoom = room;
                                 Console.WriteLine($"Joined room {room}.");
+
+                                // Propagate room state changes to peers in P2P mode.
+                                BroadcastToMesh(syncMsg);
                             }
                             else
                             {
@@ -310,13 +326,7 @@ class Program
                         }
                         else if (_client != null && _client.IsConnected)
                         {
-                            _client.Send(new Message
-                            {
-                                Sender = _username,
-                                Content = "join",
-                                Room = room,
-                                Type = MessageType.RoomCommand
-                            });
+                            _client.Send(syncMsg);
                             _joinedRooms.Add(room);
                             _activeRoom = room;
                         }
@@ -331,6 +341,14 @@ class Program
                     if (cmdres.Args != null && cmdres.Args.Length > 0)
                     {
                         string room = cmdres.Args[0];
+                        var syncMsg = new Message
+                        {
+                            Sender = _discovery.LocalPeerId,
+                            Content = "leave",
+                            Room = room,
+                            Type = MessageType.RoomCommand
+                        };
+
                         if (_server != null && _server.IsListening)
                         {
                             _server.LeaveRoom(room, null);
@@ -338,16 +356,13 @@ class Program
                             if (_activeRoom == room)
                                 _activeRoom = _joinedRooms.FirstOrDefault();
                             Console.WriteLine($"Left room {room}.");
+
+                            // Propagate room state changes to peers in P2P mode.
+                            BroadcastToMesh(syncMsg);
                         }
                         else if (_client != null && _client.IsConnected)
                         {
-                            _client.Send(new Message
-                            {
-                                Sender = _username,
-                                Content = "leave",
-                                Room = room,
-                                Type = MessageType.RoomCommand
-                            });
+                            _client.Send(syncMsg);
                             _joinedRooms.Remove(room);
                             if (_activeRoom == room)
                                 _activeRoom = _joinedRooms.FirstOrDefault();

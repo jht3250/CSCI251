@@ -339,8 +339,9 @@ public class Server
     /// </summary>
     public void Broadcast(Message message)
     {
-        // Never broadcast room-targeted messages — use SendToRoom instead
-        if (!string.IsNullOrEmpty(message.Room)) return;
+        // Never broadcast room-targeted chat messages — use SendToRoom instead.
+        // RoomCommand is metadata and should be broadcast for room state sync.
+        if (!string.IsNullOrEmpty(message.Room) && message.Type != MessageType.RoomCommand) return;
 
         List<Peer> peersCopy;
         lock (_peersLock)
@@ -356,8 +357,9 @@ public class Server
 
     public void Broadcast(Message message, Peer? excludePeer = null)
     {
-        // Never broadcast room-targeted messages — use SendToRoom instead
-        if (!string.IsNullOrEmpty(message.Room)) return;
+        // Never broadcast room-targeted chat messages — use SendToRoom instead.
+        // RoomCommand is metadata and should be broadcast for room state sync.
+        if (!string.IsNullOrEmpty(message.Room) && message.Type != MessageType.RoomCommand) return;
 
         if (excludePeer == null)
         {

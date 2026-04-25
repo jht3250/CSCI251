@@ -214,5 +214,65 @@
     "PublicKey": null,
     "TargetPeerId": null,
     "Room": null
+  },
+  {
+    "Id": "e10b1a5c-64f0-4804-a3b5-76ac3ab84096",
+    "Sender": "6cb4e2b3",
+    "Content": "meow",
+    "Timestamp": "2026-04-24T22:20:41.3930481-04:00",
+    "Type": 0,
+    "Signature": "DoMWl4xwBpvrFIPzWoZ1Deh/b3KP7iaGvqAc4P1XxtigELB3h3BQCuyyLNhlQPaxHwnUc7XginAOdMh+ht1q5KMGnX1sySbMFskNavcVbrM4P3LMJcfv1RY7kLJf6bt/SKIUaKQFxtf0zYilrFauiZAFGvujsw7Xodc5pIGY1WjacAGrz2aBh/GVED4J39ttNQBwYBL+LLC4F3iuwH22xEBs4NAHDm75sqYCSaqCxviXy4jkC6D12KOjBQezEFYcVPSCWbuAiF1NWUQnstbvBTHbg4YQkvWVNjIod5GN1oyNCplOnKLEU2/nr086ubhHP/CudMBgt5Bj83cFQHKKyQ==",
+    "EncryptedContent": null,
+    "PublicKey": null,
+    "TargetPeerId": null,
+    "Room": null
+  },
+  {
+    "Id": "5a4b5748-7442-4bd2-8786-7c29aab7df07",
+    "Sender": "7e089536",
+    "Content": "meow",
+    "Timestamp": "2026-04-24T22:20:43.1121102-04:00",
+    "Type": 0,
+    "Signature": null,
+    "EncryptedContent": null,
+    "PublicKey": null,
+    "TargetPeerId": null,
+    "Room": null
+  },
+  {
+    "Id": "b36a0b1e-2d04-4f7f-b636-06cee248eac8",
+    "Sender": "Server",
+    "Content": "Available rooms:\n  5",
+    "Timestamp": "2026-04-24T22:20:49.9416287-04:00",
+    "Type": 0,
+    "Signature": "eNzyhx4Ln7VhCVQmYgYjha228OohXQ4M/1ehW1K4LCuBFi2N3iod6NF9VU3mRcD2yeoqBi4sXe+JBLK0zJ6gLFBQaeI7BPSqcLUZyxLjpuHJvYYuiSkX1GyEVeu4clLAISXH0/kTJonh+lUx4u8VpL7S0IQNbCLzuMBWKE23ciVfgZFCA+6cCXQ4OFdtZZ7PXDvOpRMpW4y8UnH8aRS2wsbpJIuPhQtaxNFIHpAzA5fqTm7KFqDgOQAK5NyP8/JIgg2fP2nAt9ZFt/tsDXX/JuTw4E46u5bFG2e7HU9bVL1dRtjP5VWLT1jJG+fe+icoJaf4nBqFQI9jZFHbngb/nA==",
+    "EncryptedContent": null,
+    "PublicKey": null,
+    "TargetPeerId": null,
+    "Room": null
+  },
+  {
+    "Id": "ffd6a4f1-0612-4920-a281-9a820eb0e3dc",
+    "Sender": "Server",
+    "Content": "Joined room 5.",
+    "Timestamp": "2026-04-24T22:21:21.8296126-04:00",
+    "Type": 0,
+    "Signature": "SmKv3qPZ1zEQCveNkf1TrUWClKTYLKFMxjIR/VoxfCajODSARIUX3ihRZ3dUhijhMLOINh56XepZSnu1AxhSsZIT6Zv0NYKrDRAdtXj1Yo6sflVKOHOLgkKG44Wm5PDIK5zrvhnxgLNHvBaocERMYL6rh1PGeVak8G1MfgWl9otgJdhrlqW+fW+qA6zAIlHhgZ62ADrvV1joLIeefphjaViWSEhOxuGMkec4gE9ntlBgY9eiLEjYH0nfc95xkY0k/I2KE6dCZcCqjsVAclATuQRhNJkTwc7kmJ5LoejRc3CQ0Ul9Xsuavdd17as5onJtL0KI/MMbFK4VmThdCOSXiw==",
+    "EncryptedContent": null,
+    "PublicKey": null,
+    "TargetPeerId": null,
+    "Room": null
+  },
+  {
+    "Id": "c2399510-eda6-4b99-81ef-59a3553ae1da",
+    "Sender": "05849791",
+    "Content": "exit",
+    "Timestamp": "2026-04-24T22:32:00.2885479-04:00",
+    "Type": 0,
+    "Signature": null,
+    "EncryptedContent": null,
+    "PublicKey": null,
+    "TargetPeerId": null,
+    "Room": null
   }
 ]
