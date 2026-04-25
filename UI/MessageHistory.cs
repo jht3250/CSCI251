@@ -113,15 +113,24 @@ public class MessageHistory
     /// </summary>
     private void PersistToFile()
     {
-        try
+        for (int i = 0; i < 3; i++)
         {
-            var options = new JsonSerializerOptions { WriteIndented = true };
-            string json = JsonSerializer.Serialize(_messages, options);
-            File.WriteAllText(_historyFile, json);
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"[History] Error saving history to disk: {ex.Message}");
+            try
+            {
+                var options = new JsonSerializerOptions { WriteIndented = true };
+                string json = JsonSerializer.Serialize(_messages, options);
+                File.WriteAllText(_historyFile, json);
+                return;
+            }
+            catch (IOException)
+            {
+                Thread.Sleep(100);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[History] Persistent error: {ex.Message}");
+                break;
+            }
         }
     }
 

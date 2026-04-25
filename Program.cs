@@ -68,7 +68,7 @@ class Program
     private static readonly object _peerLock = new();
     private static PeerDiscovery _discovery = new();
     private static HeartbeatMonitor _heartbeat = new();
-    private static MessageHistory _history = new();
+    private static MessageHistory _history;
     private static string _localId = "";
 
     private sealed class OutgoingPeerConnection
@@ -109,6 +109,7 @@ class Program
         _client.HeartbeatMonitor = _heartbeat;
 
         _localId = _discovery.LocalPeerId;
+        _history = new MessageHistory($"history_{_localId}.json");
         _server.OnMessageReceived += HandleIncomingMessage;
         _server.OnClientConnected += peer =>
         {
@@ -266,32 +267,41 @@ class Program
                 case CommandType.CreateRoom:
                     if (cmdres.Args != null && cmdres.Args.Length > 0)
                     {
-                        string room = cmdres.Args[0];
-                        var syncMsg = new Message
-                        {
-                            Sender = _discovery.LocalPeerId,
-                            Content = "create",
-                            Room = room,
-                            Type = MessageType.RoomCommand
-                        };
+                        string roomName = cmdres.Args[0];
 
+                        bool createdLocally = false;
                         if (_server != null && _server.IsListening)
                         {
-                            bool created = _server.CreateRoom(room);
-                            Console.WriteLine(created
-                                ? $"Room {room} created."
-                                : $"Room {room} already exists.");
-
-                            // Propagate room state changes to peers in P2P mode.
-                            BroadcastToMesh(syncMsg);
+                            createdLocally = _server.CreateRoom(roomName);
                         }
-                        else if (_client != null && _client.IsConnected)
+
+                        if (createdLocally)
                         {
-                            _client.Send(syncMsg);
+                            Console.WriteLine($"[System] Room {roomName} created locally.");
+
+                            var syncMsg = new Message
+                            {
+                                Id = Guid.NewGuid(),
+                                Sender = _discovery.LocalPeerId,
+                                Type = MessageType.RoomCommand,
+                                Content = "create",
+                                Room = roomName,
+                                Timestamp = DateTime.Now
+                            };
+
+                            BroadcastToMesh(syncMsg);
+                            Console.WriteLine($"[System] Room creation announced to mesh.");
                         }
                         else
                         {
-                            Console.WriteLine("You must be connected or running a server to create rooms.");
+                            if (_server != null && _server.IsListening)
+                            {
+                                Console.WriteLine($"[System] Room {roomName} already exists.");
+                            }
+                            else
+                            {
+                                Console.WriteLine("[System] Error: You must call /listen before creating rooms.");
+                            }
                         }
                     }
                     break;
@@ -497,6 +507,16 @@ class Program
             return;
         }
 
+        if (message.Type == MessageType.RoomCommand)
+        {
+            if (message.Content == "create" && !string.IsNullOrEmpty(message.Room))
+            {
+                _server?.CreateRoom(message.Room);
+                Console.WriteLine($"[System] New room discovered in mesh: {message.Room}");
+            }
+            return;
+        }
+
         if (!string.IsNullOrEmpty(message.Room) && !_joinedRooms.Contains(message.Room))
         {
             return;
@@ -506,7 +526,6 @@ class Program
         {
             _history.SaveMessage(message);
         }
-
         _queue?.EnqueueIncoming(message);
     }
 

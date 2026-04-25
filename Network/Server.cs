@@ -676,13 +676,13 @@ public class Server
                 break;
         }
 
-        var responseMsg = new Message
-        {
-            Sender = "Server",
-            Content = response,
-            Type = MessageType.Text
-        };
-        SendToClient(peer, responseMsg);
+        //var responseMsg = new Message
+        //{
+        //    Sender = "Server",
+        //    Content = response,
+        //    Type = MessageType.Text
+        //};
+        //SendToClient(peer, responseMsg);
     }
 
     /// <summary>
@@ -716,7 +716,7 @@ public class Server
         }
     }
 
-    private static Peer CreatePeer(TcpClient client, string endpoint)
+    private Peer CreatePeer(TcpClient client, string endpoint)
     {
         var remoteEndPoint = client.Client.RemoteEndPoint as IPEndPoint;
 
@@ -733,14 +733,17 @@ public class Server
         };
     }
 
-    private static void UpdatePeerIdentity(Peer peer, string sender)
+    private void UpdatePeerIdentity(Peer peer, string sender)
     {
-        if (string.IsNullOrWhiteSpace(sender) || sender is "Server" or "KeyExchange")
+        if (string.IsNullOrWhiteSpace(sender) || sender is "Server" or "KeyExchange") return;
+
+        if (peer.Id != sender)
         {
-            return;
+            HeartbeatMonitor?.StopMonitoring(peer.Id);
+            peer.Id = sender;
+            HeartbeatMonitor?.StartMonitoring(peer.Id);
         }
 
-        peer.Id = sender;
         if (string.IsNullOrWhiteSpace(peer.Name) || peer.Name == $"{peer.Address}:{peer.Port}")
         {
             peer.Name = sender;

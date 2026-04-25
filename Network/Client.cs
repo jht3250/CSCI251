@@ -422,14 +422,17 @@ public class Client
         }
     }
 
-    private static void UpdatePeerIdentity(Peer peer, string sender)
+    private void UpdatePeerIdentity(Peer peer, string sender)
     {
-        if (string.IsNullOrWhiteSpace(sender) || sender is "Server" or "KeyExchange")
+        if (string.IsNullOrWhiteSpace(sender) || sender is "Server" or "KeyExchange") return;
+
+        if (peer.Id != sender)
         {
-            return;
+            HeartbeatMonitor?.StopMonitoring(peer.Id);
+            peer.Id = sender;
+            HeartbeatMonitor?.StartMonitoring(peer.Id);
         }
 
-        peer.Id = sender;
         if (string.IsNullOrWhiteSpace(peer.Name) || peer.Name == $"{peer.Address}:{peer.Port}")
         {
             peer.Name = sender;
