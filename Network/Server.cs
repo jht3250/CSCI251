@@ -38,19 +38,19 @@ namespace SecureMessenger.Network;
 public class Server
 {
     private TcpListener? _listener;
-    private readonly List<TcpClient> _clients = new();
-    private readonly object _clientsLock = new();
+    private readonly List<Peer> _peers = new();
+    private readonly object _peersLock = new();
     private CancellationTokenSource? _cancellationTokenSource;
 
     // Sprint 2: Per-client security state
-    private readonly Dictionary<TcpClient, AesEncryption> _clientEncryption = new();
-    private readonly Dictionary<TcpClient, byte[]> _clientSigningKeys = new();
+    private readonly Dictionary<Peer, AesEncryption> _peerEncryption = new();
+    private readonly Dictionary<Peer, byte[]> _peerSigningKeys = new();
     private System.Security.Cryptography.RSA? _serverSigningKey;
     private MessageSigner? _serverSigner;
     private readonly object _encryptionLock = new();
 
     // Sprint 2: Chat rooms
-    private readonly Dictionary<string, HashSet<TcpClient>> _rooms = new();
+    private readonly Dictionary<string, HashSet<Peer>> _rooms = new();
     private readonly object _roomsLock = new();
 
     // Debug mode: print wire messages before sending
@@ -58,8 +58,8 @@ public class Server
 
     // Events: invoke these with OnXxx?.Invoke(...) when something happens
     // Program.cs subscribes with: server.OnXxx += (args) => { ... };
-    public event Action<string>? OnClientConnected;      // endpoint string, e.g. "192.168.1.5:54321"
-    public event Action<string>? OnClientDisconnected;
+    public event Action<Peer>? OnClientConnected;
+    public event Action<Peer>? OnClientDisconnected;
     public event Action<Message>? OnMessageReceived;
 
     public int Port { get; private set; }
@@ -117,27 +117,28 @@ public class Server
                 if (_listener == null || _cancellationTokenSource == null) break;
                 TcpClient client = await _listener.AcceptTcpClientAsync(_cancellationTokenSource.Token);
                 string endpoint = client.Client.RemoteEndPoint?.ToString() ?? "Unknown";
+                Peer peer = CreatePeer(client, endpoint);
 
-                lock (_clientsLock)
+                lock (_peersLock)
                 {
-                    _clients.Add(client);
+                    _peers.Add(peer);
                 }
 
-                OnClientConnected?.Invoke(endpoint);
+                OnClientConnected?.Invoke(peer);
 
-                var (aes, peerSigningKey) = await PerformKeyExchangeAsync(client);
+                var (aes, peerSigningKey) = await PerformKeyExchangeAsync(peer);
                 if (aes != null)
                 {
                     lock (_encryptionLock)
                     {
-                        _clientEncryption[client] = aes;
+                        _peerEncryption[peer] = aes;
                         if (peerSigningKey != null)
-                            _clientSigningKeys[client] = peerSigningKey;
+                            _peerSigningKeys[peer] = peerSigningKey;
                     }
                     Console.WriteLine($"[security] Encrypted session established with {endpoint}");
                 }
 
-                _ = Task.Run(() => ReceiveFromClientAsync(client, endpoint));
+                _ = Task.Run(() => ReceiveFromClientAsync(peer));
             }
         }
         catch (OperationCanceledException)
@@ -173,11 +174,17 @@ public class Server
     /// Sprint 3: This method will be enhanced to work with Peer objects
     /// instead of raw TcpClient, enabling richer connection state tracking.
     /// </summary>
-    private async Task ReceiveFromClientAsync(TcpClient client, string endpoint)
+    private async Task ReceiveFromClientAsync(Peer peer)
     {
+        string endpoint = peer.Client?.Client.RemoteEndPoint?.ToString() ?? $"{peer.Address}:{peer.Port}";
+
         try
         {
-            NetworkStream stream = client.GetStream();
+            if (peer.Client == null)
+            {
+                return;
+            }
+            NetworkStream stream = peer.Client.GetStream();
             byte[] lengthBuffer = new byte[4];
 
             while (!_cancellationTokenSource?.Token.IsCancellationRequested ?? false)
@@ -206,13 +213,16 @@ public class Server
                 Message? message = System.Text.Json.JsonSerializer.Deserialize<Message>(jsonString);
                 if (message != null)
                 {
+                    peer.LastSeen = DateTime.Now;
+                    UpdatePeerIdentity(peer, message.Sender);
+
                     // Sprint 2: Decrypt incoming messages
                     AesEncryption? aes = null;
                     byte[]? peerSignKey = null;
                     lock (_encryptionLock)
                     {
-                        _clientEncryption.TryGetValue(client, out aes);
-                        _clientSigningKeys.TryGetValue(client, out peerSignKey);
+                        _peerEncryption.TryGetValue(peer, out aes);
+                        _peerSigningKeys.TryGetValue(peer, out peerSignKey);
                     }
 
                     if (message.Type == MessageType.Heartbeat)
@@ -243,7 +253,7 @@ public class Server
                     // Sprint 2: Handle room commands from clients
                     if (message.Type == MessageType.RoomCommand)
                     {
-                        HandleRoomCommand(client, message);
+                        HandleRoomCommand(peer, message);
                     }
                     else
                     {
@@ -276,9 +286,7 @@ public class Server
         }
         finally
         {
-            _heartbeat?.StopMonitoring(peerId);
-            _heartbeat?.TriggerFailure(peerId);
-            DisconnectClient(client, endpoint);
+            DisconnectPeer(peer);
         }
     }
 
@@ -293,31 +301,26 @@ public class Server
     /// Sprint 3: This will be refactored to DisconnectPeer(Peer peer)
     /// to handle richer peer state and trigger reconnection attempts.
     /// </summary>
-    private void DisconnectClient(TcpClient client, string endpoint)
+    private void DisconnectPeer(Peer peer)
     {
-        lock (_clientsLock)
+        lock (_peersLock)
         {
-            _clients.Remove(client);
+            _peers.Remove(peer);
         }
         lock (_encryptionLock)
         {
-            _clientEncryption.Remove(client);
-            _clientSigningKeys.Remove(client);
+            _peerEncryption.Remove(peer);
+            _peerSigningKeys.Remove(peer);
         }
         lock (_roomsLock)
         {
             foreach (var room in _rooms.Values)
-                room.Remove(client);
+                room.Remove(peer);
         }
-        try
-        {
-            client.Close();
-        }
-        catch (Exception ex)
-        {
-            // do nothing, we're disconnecting anyway
-        }
-        OnClientDisconnected?.Invoke(endpoint);
+
+        string endpoint = peer.Client?.Client.RemoteEndPoint?.ToString() ?? $"{peer.Address}:{peer.Port}";
+        peer.Dispose();
+        OnClientDisconnected?.Invoke(peer);
     }
 
     /// <summary>
@@ -339,66 +342,66 @@ public class Server
         // Never broadcast room-targeted messages — use SendToRoom instead
         if (!string.IsNullOrEmpty(message.Room)) return;
 
-        List<TcpClient> clientsCopy;
-        lock (_clientsLock)
+        List<Peer> peersCopy;
+        lock (_peersLock)
         {
-            clientsCopy = new List<TcpClient>(_clients);
+            peersCopy = new List<Peer>(_peers);
         }
 
-        foreach (var client in clientsCopy)
+        foreach (var peer in peersCopy)
         {
-            SendToClient(client, message);
+            SendToClient(peer, message);
         }
     }
 
-    public void Broadcast(Message message, TcpClient? excludeClient = null)
+    public void Broadcast(Message message, Peer? excludePeer = null)
     {
         // Never broadcast room-targeted messages — use SendToRoom instead
         if (!string.IsNullOrEmpty(message.Room)) return;
 
-        if (excludeClient == null)
+        if (excludePeer == null)
         {
             Broadcast(message);
             return;
         }
 
-        List<TcpClient> clientsCopy;
-        lock (_clientsLock)
+        List<Peer> peersCopy;
+        lock (_peersLock)
         {
-            clientsCopy = new List<TcpClient>(_clients);
+            peersCopy = new List<Peer>(_peers);
         }
 
-        foreach (var client in clientsCopy)
+        foreach (var peer in peersCopy)
         {
-            if (client == excludeClient) continue;
-            SendToClient(client, message);
+            if (peer == excludePeer) continue;
+            SendToClient(peer, message);
         }
     }
 
     /// <summary>
     /// Sprint 2: Send to a specific room. Only clients who are members receive the message.
     /// </summary>
-    public void SendToRoom(string room, Message message, TcpClient? excludeClient = null)
+    public void SendToRoom(string room, Message message, Peer? excludePeer = null)
     {
-        List<TcpClient> members;
+        List<Peer> members;
         lock (_roomsLock)
         {
             if (!_rooms.ContainsKey(room)) return;
-            members = new List<TcpClient>(_rooms[room]);
+            members = new List<Peer>(_rooms[room]);
         }
 
-        foreach (var client in members)
+        foreach (var peer in members)
         {
-            if (client == excludeClient) continue;
-            SendToClient(client, message);
+            if (peer == excludePeer) continue;
+            SendToClient(peer, message);
         }
     }
 
-    private void SendToClient(TcpClient client, Message message)
+    private void SendToClient(Peer peer, Message message)
     {
         try
         {
-            if (client.Connected)
+            if (peer.Client?.Connected == true)
             {
                 var msgCopy = new Message
                 {
@@ -412,7 +415,7 @@ public class Server
                 AesEncryption? aes = null;
                 lock (_encryptionLock)
                 {
-                    _clientEncryption.TryGetValue(client, out aes);
+                    _peerEncryption.TryGetValue(peer, out aes);
                 }
                 if (aes != null && msgCopy.Type == MessageType.Text)
                 {
@@ -430,20 +433,20 @@ public class Server
 
                 if (DebugMode)
                 {
-                    string endpoint = client.Client.RemoteEndPoint?.ToString() ?? "Unknown";
+                    string endpoint = peer.Client.Client.RemoteEndPoint?.ToString() ?? "Unknown";
                     Console.WriteLine($"[debug] -> {endpoint}: {jsonString}");
                 }
 
                 byte[] payloadBytes = System.Text.Encoding.UTF8.GetBytes(jsonString);
                 byte[] lengthPrefix = BitConverter.GetBytes(payloadBytes.Length);
-                NetworkStream stream = client.GetStream();
+                NetworkStream stream = peer.Client.GetStream();
                 stream.Write(lengthPrefix, 0, lengthPrefix.Length);
                 stream.Write(payloadBytes, 0, payloadBytes.Length);
             }
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error sending to client {client.Client.RemoteEndPoint}: {ex.Message}");
+            Console.WriteLine($"Error sending to client {peer.Client?.Client.RemoteEndPoint}: {ex.Message}");
         }
     }
 
@@ -471,20 +474,20 @@ public class Server
         }
 
         IsListening = false;
-        lock (_clientsLock)
+        lock (_peersLock)
         {
-            foreach (TcpClient client in _clients)
+            foreach (Peer peer in _peers)
             {
                 try
                 {
-                    client.Close();
+                    peer.Dispose();
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"Error closing client {client.Client.RemoteEndPoint}: {ex.Message}");
+                    Console.WriteLine($"Error closing client {peer.Client?.Client.RemoteEndPoint}: {ex.Message}");
                 }
             }
-            _clients.Clear();
+            _peers.Clear();
         }
     }
 
@@ -495,9 +498,9 @@ public class Server
     {
         get
         {
-            lock (_clientsLock)
+            lock (_peersLock)
             {
-                return _clients.Count;
+                return _peers.Count;
             }
         }
     }
@@ -509,12 +512,17 @@ public class Server
     /// 3. Receive encrypted session key and decrypt it
     /// 4. Return AesEncryption with the shared session key
     /// </summary>
-    private async Task<(AesEncryption?, byte[]?)> PerformKeyExchangeAsync(TcpClient client)
+    private async Task<(AesEncryption?, byte[]?)> PerformKeyExchangeAsync(Peer peer)
     {
         try
         {
             var keyExchange = new KeyExchange();
-            NetworkStream stream = client.GetStream();
+            if (peer.Client == null)
+            {
+                return (null, null);
+            }
+
+            NetworkStream stream = peer.Client.GetStream();
 
             // Step 1: Receive client's public key (encryption + signing)
             byte[]? peerSigningKey = null;
@@ -594,28 +602,28 @@ public class Server
         lock (_roomsLock)
         {
             if (_rooms.ContainsKey(room)) return false;
-            _rooms[room] = new HashSet<TcpClient>();
+            _rooms[room] = new HashSet<Peer>();
             return true;
         }
     }
 
-    public bool JoinRoom(string room, TcpClient? client)
+    public bool JoinRoom(string room, Peer? peer)
     {
         lock (_roomsLock)
         {
             if (!_rooms.ContainsKey(room)) return false;
-            if (client == null) return true; // Server operator - tracked in Program.cs
-            return _rooms[room].Add(client);
+            if (peer == null) return true; // Server operator - tracked in Program.cs
+            return _rooms[room].Add(peer);
         }
     }
 
-    public bool LeaveRoom(string room, TcpClient? client)
+    public bool LeaveRoom(string room, Peer? peer)
     {
         lock (_roomsLock)
         {
             if (!_rooms.ContainsKey(room)) return false;
-            if (client == null) return true; // Server operator - tracked in Program.cs
-            return _rooms[room].Remove(client);
+            if (peer == null) return true; // Server operator - tracked in Program.cs
+            return _rooms[room].Remove(peer);
         }
     }
 
@@ -630,7 +638,7 @@ public class Server
     /// <summary>
     /// Handle a room command message from a client and send a response back.
     /// </summary>
-    private void HandleRoomCommand(TcpClient client, Message message)
+    private void HandleRoomCommand(Peer peer, Message message)
     {
         string command = message.Content; // e.g. "join", "create", "leave", "list"
         string room = message.Room ?? "";
@@ -649,12 +657,12 @@ public class Server
                 }
                 else
                 {
-                    bool joined = JoinRoom(room, client);
+                    bool joined = JoinRoom(room, peer);
                     response = joined ? $"Joined room {room}." : $"Could not join room {room} (doesn't exist or already joined).";
                 }
                 break;
             case "leave":
-                bool left = LeaveRoom(room, client);
+                bool left = LeaveRoom(room, peer);
                 response = left ? $"Left room {room}." : $"Could not leave room {room}.";
                 break;
             case "list":
@@ -672,7 +680,7 @@ public class Server
             Content = response,
             Type = MessageType.Text
         };
-        SendToClient(client, responseMsg);
+        SendToClient(peer, responseMsg);
     }
 
     /// <summary>
@@ -680,10 +688,18 @@ public class Server
     /// </summary>
     public TcpClient? GetClientByEndpoint(string endpoint)
     {
-        lock (_clientsLock)
+        lock (_peersLock)
         {
-            return _clients.FirstOrDefault(c =>
-                c.Client.RemoteEndPoint?.ToString() == endpoint);
+            return _peers.FirstOrDefault(p =>
+                p.Client?.Client.RemoteEndPoint?.ToString() == endpoint)?.Client;
+        }
+    }
+
+    public List<Peer> GetConnectedPeers()
+    {
+        lock (_peersLock)
+        {
+            return new List<Peer>(_peers);
         }
     }
 
@@ -692,9 +708,40 @@ public class Server
     /// </summary>
     public TcpClient? GetFirstClient()
     {
-        lock (_clientsLock)
+        lock (_peersLock)
         {
-            return _clients.FirstOrDefault();
+            return _peers.FirstOrDefault()?.Client;
+        }
+    }
+
+    private static Peer CreatePeer(TcpClient client, string endpoint)
+    {
+        var remoteEndPoint = client.Client.RemoteEndPoint as IPEndPoint;
+
+        return new Peer
+        {
+            Id = endpoint,
+            Name = endpoint,
+            Address = remoteEndPoint?.Address,
+            Port = remoteEndPoint?.Port ?? 0,
+            Client = client,
+            Stream = client.GetStream(),
+            IsConnected = true,
+            LastSeen = DateTime.Now
+        };
+    }
+
+    private static void UpdatePeerIdentity(Peer peer, string sender)
+    {
+        if (string.IsNullOrWhiteSpace(sender) || sender is "Server" or "KeyExchange")
+        {
+            return;
+        }
+
+        peer.Id = sender;
+        if (string.IsNullOrWhiteSpace(peer.Name) || peer.Name == $"{peer.Address}:{peer.Port}")
+        {
+            peer.Name = sender;
         }
     }
 }

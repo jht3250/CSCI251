@@ -23,6 +23,7 @@
 //
 
 using System.Net.Sockets;
+using System.Net;
 using System.Text;
 using System.Text.Json;
 using SecureMessenger.Core;
@@ -55,11 +56,12 @@ public class Client
     private System.Security.Cryptography.RSA? _signingKey;
     private byte[]? _peerSigningPublicKey;
 
-    public event Action<string>? OnConnected;
-    public event Action<string>? OnDisconnected;
+    public event Action<Peer>? OnConnected;
+    public event Action<Peer>? OnDisconnected;
     public event Action<Message>? OnMessageReceived;
 
     public bool IsConnected => _client?.Connected ?? false;
+    public Peer? ConnectedPeer { get; private set; }
 
     public HeartbeatMonitor? HeartbeatMonitor { get; set; }
 
@@ -80,7 +82,7 @@ public class Client
     /// Sprint 3: This will be enhanced to create a Peer object and
     /// register it with the connection manager for reconnection support.
     /// </summary>
-    public async Task<bool> ConnectAsync(string host, int port)
+    public async Task<bool> ConnectAsync(string host, int port, Peer? peer = null)
     {
         try
         {
@@ -90,10 +92,22 @@ public class Client
             _stream = _client.GetStream();
             _serverEndpoint = $"{host}:{port}";
 
+            ConnectedPeer = peer ?? new Peer();
+            ConnectedPeer.Address ??= ResolveAddress(host);
+            ConnectedPeer.Port = port;
+            ConnectedPeer.Client = _client;
+            ConnectedPeer.Stream = _stream;
+            ConnectedPeer.IsConnected = true;
+            ConnectedPeer.LastSeen = DateTime.Now;
+            if (string.IsNullOrWhiteSpace(ConnectedPeer.Name))
+            {
+                ConnectedPeer.Name = _serverEndpoint;
+            }
+
             // Sprint 2: Perform key exchange before starting receive loop
             await PerformKeyExchangeAsync();
 
-            OnConnected?.Invoke(_serverEndpoint);
+            OnConnected?.Invoke(ConnectedPeer);
             _ = Task.Run(ReceiveAsync);
             return true;
         }
@@ -130,6 +144,7 @@ public class Client
     private async Task ReceiveAsync()
     {
         var lengthBuffer = new byte[4];
+        var peer = ConnectedPeer;
         try
         {
             while (!_cancellationTokenSource!.Token.IsCancellationRequested && (_client?.Connected ?? false))
@@ -168,6 +183,12 @@ public class Client
                 var message = JsonSerializer.Deserialize<Message>(json);
                 if (message != null)
                 {
+                    if (peer != null)
+                    {
+                        peer.LastSeen = DateTime.Now;
+                        UpdatePeerIdentity(peer, message.Sender);
+                    }
+
                     if (message.Type == MessageType.Heartbeat)
                     {
                         HeartbeatMonitor?.RecordHeartbeat(message.Sender);
@@ -209,9 +230,13 @@ public class Client
         }
         finally
         {
-            _heartbeat?.StopMonitoring(peerId);
-            _heartbeat?.TriggerFailure(peerId);
-            OnDisconnected?.Invoke(_serverEndpoint);
+            if (peer != null)
+            {
+                peer.IsConnected = false;
+                peer.LastSeen = DateTime.Now;
+                HeartbeatMonitor?.StopMonitoring(peer.Id);
+                OnDisconnected?.Invoke(peer);
+            }
         }
     }
 
@@ -287,6 +312,11 @@ public class Client
         _stream?.Close();
         _client?.Close();
         _rsaEncryption?.Dispose();
+
+        if (ConnectedPeer != null)
+        {
+            ConnectedPeer.IsConnected = false;
+        }
     }
 
     /// <summary>
@@ -373,5 +403,36 @@ public class Client
 
         string json = Encoding.UTF8.GetString(payloadBuffer, 0, totalRead);
         return JsonSerializer.Deserialize<Message>(json);
+    }
+
+    private static IPAddress? ResolveAddress(string host)
+    {
+        if (IPAddress.TryParse(host, out IPAddress? address))
+        {
+            return address;
+        }
+
+        try
+        {
+            return Dns.GetHostAddresses(host).FirstOrDefault();
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static void UpdatePeerIdentity(Peer peer, string sender)
+    {
+        if (string.IsNullOrWhiteSpace(sender) || sender is "Server" or "KeyExchange")
+        {
+            return;
+        }
+
+        peer.Id = sender;
+        if (string.IsNullOrWhiteSpace(peer.Name) || peer.Name == $"{peer.Address}:{peer.Port}")
+        {
+            peer.Name = sender;
+        }
     }
 }
